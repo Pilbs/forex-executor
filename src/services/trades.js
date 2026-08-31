@@ -18,3 +18,23 @@ export async function getClosedTrades() {
 
   return response.json()
 }
+
+export async function getAccountSummary() {
+  const response = await fetch("/api/oanda/account")
+
+  if (!response.ok) {
+    throw new Error("Failed to load account summary")
+  }
+
+  return response.json()
+}
+
+export async function getLiveDashboard() {
+  const response = await fetch("/api/dashboard/live")
+
+  if (!response.ok) {
+    throw new Error("Failed to load live dashboard")
+  }
+
+  return response.json()
+}

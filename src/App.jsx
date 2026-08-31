@@ -1,16 +1,26 @@
-import { useEffect, useMemo, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 
 import {
-  getOpenTrades,
+  getLiveDashboard,
   getClosedTrades,
 } from "./services/trades"
 
 import TradeTable from "./components/TradeTable"
+import SummaryCard from "./components/SummaryCard"
+
+import { formatMoney } from "./utils/format"
 
 import "./App.css"
 
 
 function App() {
+
+  const [account, setAccount] = useState(null)
+
   const [openTrades, setOpenTrades] = useState([])
   const [closedTrades, setClosedTrades] = useState([])
 
@@ -19,34 +29,131 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  async function refreshClosedTrades() {
+    try {
+      const closedData = await getClosedTrades()
+
+      setClosedTrades(closedData.trades)
+    } catch (error) {
+      console.error(
+        "Trade history refresh failed:",
+        error
+      )
+    }
+  }
+
+  async function loadLiveData() {
+    const liveData = await getLiveDashboard()
+
+    setAccount(liveData.account)
+
+    setOpenTrades((previousOpenTrades) => {
+      const previousIds = new Set(
+        previousOpenTrades.map((trade) =>
+          String(trade.tradeId)
+        )
+      )
+
+      const currentIds = new Set(
+        liveData.openTrades.map((trade) =>
+          String(trade.tradeId)
+        )
+      )
+
+      const tradeClosed =
+        [...previousIds].some(
+          (tradeId) => !currentIds.has(tradeId)
+        )
+
+      if (tradeClosed) {
+        refreshClosedTrades()
+      }
+
+      return liveData.openTrades
+    })
+  }
+
 
   useEffect(() => {
-    async function loadTrades() {
+
+async function loadInitialData() {
+  try {
+    const [
+      liveData,
+      closedData,
+    ] = await Promise.all([
+      getLiveDashboard(),
+      getClosedTrades(),
+    ])
+
+    setAccount(liveData.account)
+    setOpenTrades(liveData.openTrades)
+    setClosedTrades(closedData.trades)
+
+  } catch (error) {
+    setError(error.message)
+
+  } finally {
+    setLoading(false)
+  }
+}
+
+
+    loadInitialData()
+
+
+    async function refreshIfVisible() {
+      if (document.visibilityState !== "visible") {
+        return
+      }
+
       try {
-        const [
-          openData,
-          closedData,
-        ] = await Promise.all([
-          getOpenTrades(),
-          getClosedTrades(),
-        ])
-
-        setOpenTrades(openData.trades)
-        setClosedTrades(closedData.trades)
-
+        await loadLiveData()
       } catch (error) {
-        setError(error.message)
-
-      } finally {
-        setLoading(false)
+        console.error(
+          "Live refresh failed:",
+          error
+        )
       }
     }
 
-    loadTrades()
+
+    const interval = setInterval(
+      refreshIfVisible,
+      30000
+    )
+
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshIfVisible()
+      }
+    }
+
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    )
+
+
+    return () => {
+      clearInterval(interval)
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      )
+    }
+
+
+    return () => clearInterval(interval)
+
   }, [])
 
 
   function filterTrades(trades) {
+
     if (filter === "automated") {
       return trades.filter(
         (trade) => trade.automated
@@ -68,6 +175,7 @@ function App() {
     [openTrades, filter]
   )
 
+
   const filteredClosedTrades = useMemo(
     () => filterTrades(closedTrades),
     [closedTrades, filter]
@@ -75,81 +183,136 @@ function App() {
 
 
   if (loading) {
-    return <p>Loading trades...</p>
+    return (
+      <div className="page-message">
+        Loading dashboard...
+      </div>
+    )
   }
 
+
   if (error) {
-    return <p>Error: {error}</p>
+    return (
+      <div className="page-message error">
+        {error}
+      </div>
+    )
   }
+
+
+  const currency =
+    account?.currency ?? "GBP"
 
 
   return (
     <main className="dashboard">
 
-      <header>
-        <h1>Forex Executor</h1>
-        <p>OANDA Practice Account</p>
+      <header className="dashboard-header">
+
+        <div>
+          <h1>Forex Executor</h1>
+          <p>OANDA Practice Account</p>
+        </div>
+
+        <span className="environment-badge">
+          PRACTICE
+        </span>
+
       </header>
 
 
-      <div className="filters">
+      <div className="summary-grid">
 
-        <button
-          onClick={() => setFilter("all")}
-          disabled={filter === "all"}
-        >
-          All
-        </button>
+        <SummaryCard
+          label="Balance"
+          value={formatMoney(
+            account.balance,
+            currency
+          )}
+        />
 
-        <button
-          onClick={() => setFilter("automated")}
-          disabled={filter === "automated"}
-        >
-          Automated
-        </button>
+        <SummaryCard
+          label="NAV"
+          value={formatMoney(
+            account.NAV,
+            currency
+          )}
+        />
 
-        <button
-          onClick={() => setFilter("manual")}
-          disabled={filter === "manual"}
-        >
-          Manual
-        </button>
+        <SummaryCard
+          label="Open Trades"
+          value={account.openTradeCount}
+        />
+
+        <SummaryCard
+          label="Pending Orders"
+          value={account.pendingOrderCount}
+        />
 
       </div>
 
 
-      <section>
+      <div className="filters">
 
-        <h2>Open Trades</h2>
+        {[
+          ["all", "All"],
+          ["automated", "Automated"],
+          ["manual", "Manual"],
+        ].map(([value, label]) => (
 
-        <p>
-          {filteredOpenTrades.length} open trade
-          {filteredOpenTrades.length === 1
-            ? ""
-            : "s"}
-        </p>
+          <button
+            key={value}
+            className={
+              filter === value
+                ? "filter-active"
+                : ""
+            }
+            onClick={() => setFilter(value)}
+          >
+            {label}
+          </button>
+
+        ))}
+
+      </div>
+
+
+      <section className="trade-section">
+
+        <div className="section-header">
+
+          <h2>Open Trades</h2>
+
+          <span>
+            {filteredOpenTrades.length}
+          </span>
+
+        </div>
 
         <TradeTable
           trades={filteredOpenTrades}
+          currency={currency}
         />
 
       </section>
 
 
-      <section>
+      <section className="trade-section">
 
-        <h2>Trade History</h2>
+        <div className="section-header">
 
-        <p>
-          {filteredClosedTrades.length} historic trade
-          {filteredClosedTrades.length === 1
-            ? ""
-            : "s"}
-        </p>
+          <h2>Trade History</h2>
+
+          <span>
+            {filteredClosedTrades.length}
+          </span>
+
+        </div>
 
         <TradeTable
           trades={filteredClosedTrades}
           closed
+          currency={currency}
         />
 
       </section>
@@ -157,5 +320,6 @@ function App() {
     </main>
   )
 }
+
 
 export default App

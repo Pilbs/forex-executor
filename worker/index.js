@@ -6,6 +6,7 @@ import {
   handleGetOpenTrades,
   handleGetClosedTrades,
 } from "./routes/trades.js"
+import { handleGetLiveDashboard } from "./routes/dashboard.js"
 
 export default {
   async fetch(request, env) {
@@ -85,6 +86,10 @@ export default {
 
     if (url.pathname === "/api/oanda/trades/closed") {
       return handleGetClosedTrades(request, env)
+    }
+
+    if (url.pathname === "/api/dashboard/live") {
+      return handleGetLiveDashboard(request, env)
     }
 
     // MUST BE LAST
