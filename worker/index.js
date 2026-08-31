@@ -2,7 +2,10 @@ import { getAccountSummary } from "./services/oanda.js"
 import { getDatabaseHealth } from "./services/database.js"
 import { handleTestSignal } from "./routes/signals.js"
 import { handleExecuteSignal } from "./routes/execution.js"
-import { handleGetOpenTrades } from "./routes/trades.js"
+import {
+  handleGetOpenTrades,
+  handleGetClosedTrades,
+} from "./routes/trades.js"
 
 export default {
   async fetch(request, env) {
@@ -78,6 +81,10 @@ export default {
 
     if (url.pathname === "/api/oanda/trades/open") {
       return handleGetOpenTrades(request, env)
+    }
+
+    if (url.pathname === "/api/oanda/trades/closed") {
+      return handleGetClosedTrades(request, env)
     }
 
     // MUST BE LAST

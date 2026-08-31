@@ -131,13 +131,15 @@ export async function getSignalsByOandaTradeIds(env, tradeIds) {
 
   const result = await env.DB
     .prepare(`
-      SELECT
-        signal_id,
-        strategy_name,
-        oanda_order_id,
-        oanda_trade_id
-      FROM trade_signals
-      WHERE oanda_trade_id IN (${placeholders})
+          SELECT
+      signal_id,
+      strategy_name,
+      oanda_order_id,
+      oanda_trade_id,
+      requested_stop_loss,
+      requested_take_profit
+    FROM trade_signals
+    WHERE oanda_trade_id IN (${placeholders})
     `)
     .bind(...tradeIds)
     .all()

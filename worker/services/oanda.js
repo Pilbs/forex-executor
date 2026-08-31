@@ -134,3 +134,26 @@ export async function getOpenTrades(env) {
 
   return data.trades ?? []
 }
+
+export async function getClosedTrades(env, count = 100) {
+  const response = await fetch(
+    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades?state=CLOSED&count=${count}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(
+      data.errorMessage || `OANDA request failed: ${response.status}`
+    )
+  }
+
+  return data.trades ?? []
+}
