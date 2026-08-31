@@ -7,9 +7,10 @@ import {
   handleGetClosedTrades,
 } from "./routes/trades.js"
 import { handleGetLiveDashboard } from "./routes/dashboard.js"
+import { handleTradingViewWebhook } from "./routes/tradingview.js"
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
 
     if (url.pathname === "/api/health") {
@@ -66,6 +67,12 @@ export default {
     }
 
     if (url.pathname === "/api/signals/test") {
+      if (env.ALLOW_TEST_ENDPOINTS !== "true") {
+        return new Response("Not Found", {
+          status: 404,
+        })
+      }
+
       return handleTestSignal(request, env)
     }
 
@@ -73,6 +80,12 @@ export default {
       url.pathname.match(/^\/api\/signals\/(\d+)\/execute$/)
 
     if (executeMatch) {
+      if (env.ALLOW_TEST_ENDPOINTS !== "true") {
+        return new Response("Not Found", {
+          status: 404,
+        })
+      }
+
       return handleExecuteSignal(
         request,
         env,
@@ -90,6 +103,14 @@ export default {
 
     if (url.pathname === "/api/dashboard/live") {
       return handleGetLiveDashboard(request, env)
+    }
+
+    if (url.pathname === "/api/webhook/tradingview") {
+      return handleTradingViewWebhook(
+        request,
+        env,
+        ctx
+      )
     }
 
     // MUST BE LAST

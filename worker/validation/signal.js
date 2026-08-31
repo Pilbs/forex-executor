@@ -1,3 +1,7 @@
+const allowedInstruments = [
+  "EUR_USD",
+]
+
 export function validateSignal(payload) {
   const errors = []
 
@@ -21,12 +25,25 @@ export function validateSignal(payload) {
     errors.push("instrument must look like EUR_USD")
   }
 
+  if (
+    payload.instrument &&
+    !allowedInstruments.includes(payload.instrument)
+  ) {
+    errors.push(
+      `instrument is not allowed: ${payload.instrument}`
+    )
+  }
+
   if (!["buy", "sell"].includes(payload.direction)) {
     errors.push("direction must be buy or sell")
   }
 
   if (!Number.isInteger(payload.units) || payload.units <= 0) {
     errors.push("units must be a positive integer")
+  }
+
+  if (payload.units > 10000) {
+    errors.push("units cannot exceed 10000")
   }
 
   if (
