@@ -5,7 +5,9 @@
   "main": "./worker/index.js",
   "d1_databases": [
     {
-      "binding": "DB"
+      "binding": "DB",
+      "database_name": "forex-executor-db",
+      "database_id": "7651800a-dd0b-47c6-aece-bcbf5a6e9418"
     }
   ],
   "assets": {
