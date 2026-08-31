@@ -119,3 +119,33 @@ export async function markSignalFailed(
     .bind(errorCode, errorMessage, id)
     .run()
 }
+
+export async function getSignalsByOandaTradeIds(env, tradeIds) {
+  if (tradeIds.length === 0) {
+    return new Map()
+  }
+
+  const placeholders = tradeIds
+    .map(() => "?")
+    .join(", ")
+
+  const result = await env.DB
+    .prepare(`
+      SELECT
+        signal_id,
+        strategy_name,
+        oanda_order_id,
+        oanda_trade_id
+      FROM trade_signals
+      WHERE oanda_trade_id IN (${placeholders})
+    `)
+    .bind(...tradeIds)
+    .all()
+
+  return new Map(
+    result.results.map((row) => [
+      String(row.oanda_trade_id),
+      row,
+    ])
+  )
+}

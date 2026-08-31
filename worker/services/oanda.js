@@ -19,7 +19,7 @@ export async function getAccountSummary(env) {
       },
     }
   )
-  
+
   const data = await response.json()
 
   if (!response.ok) {
@@ -109,4 +109,28 @@ export async function placeMarketOrder(env, signal) {
     price: fill.price ?? null,
     time: fill.time ?? null,
   }
+}
+
+
+export async function getOpenTrades(env) {
+  const response = await fetch(
+    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(
+      data.errorMessage || `OANDA request failed: ${response.status}`
+    )
+  }
+
+  return data.trades ?? []
 }
