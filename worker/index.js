@@ -1,6 +1,8 @@
 import { getAccountSummary } from "./services/oanda.js"
 import { getDatabaseHealth } from "./services/database.js"
 import { handleTestSignal } from "./routes/signals.js"
+import { handleExecuteSignal } from "./routes/execution.js"
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -9,6 +11,24 @@ export default {
       return Response.json({
         status: "ok",
       })
+    }
+
+    if (url.pathname === "/api/db/health") {
+      try {
+        const data = await getDatabaseHealth(env)
+
+        return Response.json(data)
+      } catch (error) {
+        return Response.json(
+          {
+            connected: false,
+            error: error.message,
+          },
+          {
+            status: 500,
+          }
+        )
+      }
     }
 
     if (url.pathname === "/api/oanda/account") {
@@ -40,28 +60,22 @@ export default {
       }
     }
 
-    if (url.pathname === "/api/db/health") {
-      try {
-        const data = await getDatabaseHealth(env)
-
-        return Response.json(data)
-      } catch (error) {
-        return Response.json(
-          {
-            connected: false,
-            error: error.message,
-          },
-          {
-            status: 500,
-          }
-        )
-      }
-    }
-
     if (url.pathname === "/api/signals/test") {
       return handleTestSignal(request, env)
     }
 
+    const executeMatch =
+      url.pathname.match(/^\/api\/signals\/(\d+)\/execute$/)
+
+    if (executeMatch) {
+      return handleExecuteSignal(
+        request,
+        env,
+        Number(executeMatch[1])
+      )
+    }
+
+    // MUST BE LAST
     return new Response("Worker 404", {
       status: 404,
     })
