@@ -200,6 +200,53 @@ export async function updateTradeStopLoss(
   }
 }
 
+export async function updateTradeBracket(
+  env,
+  tradeId,
+  stopLoss,
+  takeProfit
+) {
+  const response = await fetch(
+    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        stopLoss: {
+          price: String(stopLoss),
+          timeInForce: "GTC",
+        },
+        takeProfit: {
+          price: String(takeProfit),
+          timeInForce: "GTC",
+        },
+      }),
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    const error = new Error(
+      data.errorMessage ||
+      `OANDA bracket update failed: ${response.status}`
+    )
+
+    error.code = data.errorCode ?? null
+    throw error
+  }
+
+  return {
+    tradeId: String(tradeId),
+    stopLoss: String(stopLoss),
+    takeProfit: String(takeProfit),
+    lastTransactionId: data.lastTransactionID ?? null,
+  }
+}
+
 
 export async function closeTrade(
   env,

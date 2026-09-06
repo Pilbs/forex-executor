@@ -1,5 +1,6 @@
 import {
   updateTradeStopLoss,
+  updateTradeBracket,
   closeTrade,
 } from "./oanda.js"
 
@@ -55,6 +56,27 @@ export async function updateSignalStopLoss(
     env,
     signal.oanda_trade_id,
     stopLoss
+  )
+}
+
+export async function updateSignalBracket(
+  env,
+  strategyName,
+  signalId,
+  stopLoss,
+  takeProfit
+) {
+  const signal = await getExecutedSignal(
+    env,
+    strategyName,
+    signalId
+  )
+
+  return updateTradeBracket(
+    env,
+    signal.oanda_trade_id,
+    stopLoss,
+    takeProfit
   )
 }
 

@@ -3,11 +3,13 @@ import { saveSignal } from "../services/signals.js"
 import { executeSignalById } from "../services/execution.js"
 import {
   validateUpdateStop,
+  validateUpdateBracket,
   validateClose,
 } from "../validation/trade-management.js"
 
 import {
   updateSignalStopLoss,
+  updateSignalBracket,
   closeSignalTrade,
 } from "../services/trade-management.js"
 
@@ -194,6 +196,53 @@ if (action === "update_stop") {
     {
       accepted: true,
       action: "update_stop",
+      executionScheduled: true,
+    },
+    {
+      status: 202,
+    }
+  )
+}
+
+// ─────────────────────────────────────────────
+// UPDATE BRACKET
+// ─────────────────────────────────────────────
+
+if (action === "update_bracket") {
+  const validationErrors =
+    validateUpdateBracket(payload)
+
+  if (validationErrors.length > 0) {
+    return Response.json(
+      {
+        accepted: false,
+        errors: validationErrors,
+      },
+      {
+        status: 400,
+      }
+    )
+  }
+
+  ctx.waitUntil(
+    updateSignalBracket(
+      env,
+      payload.strategyName,
+      payload.signalId,
+      payload.stopLoss,
+      payload.takeProfit
+    ).catch((error) => {
+      console.error(
+        "Background bracket update failed:",
+        error
+      )
+    })
+  )
+
+  return Response.json(
+    {
+      accepted: true,
+      action: "update_bracket",
       executionScheduled: true,
     },
     {
