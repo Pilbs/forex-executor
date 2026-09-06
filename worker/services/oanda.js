@@ -157,3 +157,83 @@ export async function getClosedTrades(env, count = 100) {
 
   return data.trades ?? []
 }
+
+export async function updateTradeStopLoss(
+  env,
+  tradeId,
+  stopLoss
+) {
+  const response = await fetch(
+    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        stopLoss: {
+          price: String(stopLoss),
+          timeInForce: "GTC",
+        },
+      }),
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    const error = new Error(
+      data.errorMessage ||
+      `OANDA stop update failed: ${response.status}`
+    )
+
+    error.code = data.errorCode ?? null
+    throw error
+  }
+
+  return {
+    tradeId: String(tradeId),
+    stopLoss: String(stopLoss),
+    lastTransactionId:
+      data.lastTransactionID ?? null,
+  }
+}
+
+
+export async function closeTrade(
+  env,
+  tradeId
+) {
+  const response = await fetch(
+    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/close`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        units: "ALL",
+      }),
+    }
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    const error = new Error(
+      data.errorMessage ||
+      `OANDA trade close failed: ${response.status}`
+    )
+
+    error.code = data.errorCode ?? null
+    throw error
+  }
+
+  return {
+    tradeId: String(tradeId),
+    lastTransactionId:
+      data.lastTransactionID ?? null,
+  }
+}

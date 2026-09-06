@@ -1,6 +1,15 @@
 import { validateSignal } from "../validation/signal.js"
 import { saveSignal } from "../services/signals.js"
 import { executeSignalById } from "../services/execution.js"
+import {
+  validateUpdateStop,
+  validateClose,
+} from "../validation/trade-management.js"
+
+import {
+  updateSignalStopLoss,
+  closeSignalTrade,
+} from "../services/trade-management.js"
 
 const TRADINGVIEW_IPS = new Set([
   "52.89.214.238",
@@ -51,6 +60,14 @@ export async function handleTradingViewWebhook(
     )
   }
 
+  const action = payload.action ?? "entry"
+
+
+// ─────────────────────────────────────────────
+// ENTRY
+// ─────────────────────────────────────────────
+
+if (action === "entry") {
   const validationErrors =
     validateSignal(payload)
 
@@ -93,7 +110,7 @@ export async function handleTradingViewWebhook(
         result.signal.id
       ).catch((error) => {
         console.error(
-          "Background execution failed:",
+          "Background entry execution failed:",
           error
         )
       })
@@ -102,6 +119,7 @@ export async function handleTradingViewWebhook(
     return Response.json(
       {
         accepted: true,
+        action: "entry",
         duplicate: false,
         executionScheduled: true,
 
@@ -125,7 +143,6 @@ export async function handleTradingViewWebhook(
     )
 
   } catch (error) {
-
     return Response.json(
       {
         accepted: false,
@@ -136,4 +153,113 @@ export async function handleTradingViewWebhook(
       }
     )
   }
+}
+
+
+// ─────────────────────────────────────────────
+// UPDATE STOP
+// ─────────────────────────────────────────────
+
+if (action === "update_stop") {
+  const validationErrors =
+    validateUpdateStop(payload)
+
+  if (validationErrors.length > 0) {
+    return Response.json(
+      {
+        accepted: false,
+        errors: validationErrors,
+      },
+      {
+        status: 400,
+      }
+    )
+  }
+
+  ctx.waitUntil(
+    updateSignalStopLoss(
+      env,
+      payload.strategyName,
+      payload.signalId,
+      payload.stopLoss
+    ).catch((error) => {
+      console.error(
+        "Background stop update failed:",
+        error
+      )
+    })
+  )
+
+  return Response.json(
+    {
+      accepted: true,
+      action: "update_stop",
+      executionScheduled: true,
+    },
+    {
+      status: 202,
+    }
+  )
+}
+
+
+// ─────────────────────────────────────────────
+// CLOSE
+// ─────────────────────────────────────────────
+
+if (action === "close") {
+  const validationErrors =
+    validateClose(payload)
+
+  if (validationErrors.length > 0) {
+    return Response.json(
+      {
+        accepted: false,
+        errors: validationErrors,
+      },
+      {
+        status: 400,
+      }
+    )
+  }
+
+  ctx.waitUntil(
+    closeSignalTrade(
+      env,
+      payload.strategyName,
+      payload.signalId
+    ).catch((error) => {
+      console.error(
+        "Background trade close failed:",
+        error
+      )
+    })
+  )
+
+  return Response.json(
+    {
+      accepted: true,
+      action: "close",
+      executionScheduled: true,
+    },
+    {
+      status: 202,
+    }
+  )
+}
+
+
+// ─────────────────────────────────────────────
+// UNKNOWN ACTION
+// ─────────────────────────────────────────────
+
+return Response.json(
+  {
+    accepted: false,
+    error: `Unsupported action: ${action}`,
+  },
+  {
+    status: 400,
+  }
+)
 }

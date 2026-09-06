@@ -151,3 +151,22 @@ export async function getSignalsByOandaTradeIds(env, tradeIds) {
     ])
   )
 }
+
+export async function getSignalByStrategySignalId(
+  env,
+  strategyName,
+  signalId
+) {
+  return env.DB
+    .prepare(`
+      SELECT *
+      FROM trade_signals
+      WHERE strategy_name = ?
+        AND signal_id = ?
+    `)
+    .bind(
+      strategyName,
+      signalId
+    )
+    .first()
+}
