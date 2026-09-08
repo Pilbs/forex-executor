@@ -6,8 +6,8 @@ import {
 
 import {
   getSignalByStrategySignalId,
+  markSignalBotClosed,
 } from "./signals.js"
-
 
 async function getExecutedSignal(
   env,
@@ -38,7 +38,6 @@ async function getExecutedSignal(
 
   return signal
 }
-
 
 export async function updateSignalStopLoss(
   env,
@@ -80,7 +79,6 @@ export async function updateSignalBracket(
   )
 }
 
-
 export async function closeSignalTrade(
   env,
   strategyName,
@@ -92,8 +90,18 @@ export async function closeSignalTrade(
     signalId
   )
 
-  return closeTrade(
+  const result = await closeTrade(
     env,
     signal.oanda_trade_id
   )
+
+  if (result.closeTransactionId) {
+    await markSignalBotClosed(
+      env,
+      signal.id,
+      result.closeTransactionId
+    )
+  }
+
+  return result
 }
