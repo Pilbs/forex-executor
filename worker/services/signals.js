@@ -60,7 +60,6 @@ export async function getSignalById(env, id) {
     .first()
 }
 
-
 export async function claimSignalForExecution(env, id) {
   const result = await env.DB
     .prepare(`
@@ -76,7 +75,6 @@ export async function claimSignalForExecution(env, id) {
 
   return result.meta.changes === 1
 }
-
 
 export async function markSignalExecuted(
   env,
@@ -99,7 +97,6 @@ export async function markSignalExecuted(
     .run()
 }
 
-
 export async function markSignalFailed(
   env,
   id,
@@ -120,6 +117,23 @@ export async function markSignalFailed(
     .run()
 }
 
+export async function markSignalBotClosed(
+  env,
+  id,
+  closeTransactionId
+) {
+  await env.DB
+    .prepare(`
+      UPDATE trade_signals
+      SET
+        bot_close_transaction_id = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `)
+    .bind(closeTransactionId, id)
+    .run()
+}
+
 export async function getSignalsByOandaTradeIds(env, tradeIds) {
   if (tradeIds.length === 0) {
     return new Map()
@@ -131,15 +145,16 @@ export async function getSignalsByOandaTradeIds(env, tradeIds) {
 
   const result = await env.DB
     .prepare(`
-          SELECT
-      signal_id,
-      strategy_name,
-      oanda_order_id,
-      oanda_trade_id,
-      requested_stop_loss,
-      requested_take_profit
-    FROM trade_signals
-    WHERE oanda_trade_id IN (${placeholders})
+      SELECT
+        signal_id,
+        strategy_name,
+        oanda_order_id,
+        oanda_trade_id,
+        requested_stop_loss,
+        requested_take_profit,
+        bot_close_transaction_id
+      FROM trade_signals
+      WHERE oanda_trade_id IN (${placeholders})
     `)
     .bind(...tradeIds)
     .all()
