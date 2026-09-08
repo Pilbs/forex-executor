@@ -4,19 +4,20 @@ import {
 } from "../services/oanda.js"
 import { getSignalsByOandaTradeIds } from "../services/signals.js"
 
-function getExitType(trade, signal) {
-  if (trade.closeReason === "STOP_LOSS_ORDER") return "Stop Loss"
-  if (trade.closeReason === "TAKE_PROFIT_ORDER") return "Take Profit"
-
-  if (
-    signal?.bot_close_transaction_id &&
-    String(signal.bot_close_transaction_id) === String(trade.closeTransactionId)
-  ) {
-    return "Bot"
+function getExitType(trade) {
+  if (trade.closeReason === "STOP_LOSS_ORDER") {
+    return "Stop Loss"
   }
 
-  if (trade.closeReason === "MARKET_ORDER_TRADE_CLOSE" || trade.closeReason === "MARKET_ORDER") {
-    return "Manual"
+  if (trade.closeReason === "TAKE_PROFIT_ORDER") {
+    return "Take Profit"
+  }
+
+  if (
+    trade.closeReason === "MARKET_ORDER_TRADE_CLOSE" ||
+    trade.closeReason === "MARKET_ORDER"
+  ) {
+    return "Market Close"
   }
 
   return trade.closeReason ?? "Other"
@@ -24,13 +25,19 @@ function getExitType(trade, signal) {
 
 export async function handleGetOpenTrades(request, env) {
   if (request.method !== "GET") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 })
+    return Response.json(
+      { error: "Method not allowed" },
+      { status: 405 }
+    )
   }
 
   try {
     const oandaTrades = await getOpenTrades(env)
-    const tradeIds = oandaTrades.map((trade) => String(trade.id))
-    const signalMap = await getSignalsByOandaTradeIds(env, tradeIds)
+    const tradeIds = oandaTrades.map((trade) =>
+      String(trade.id)
+    )
+    const signalMap =
+      await getSignalsByOandaTradeIds(env, tradeIds)
 
     const trades = oandaTrades.map((trade) => {
       const signal = signalMap.get(String(trade.id))
@@ -57,19 +64,28 @@ export async function handleGetOpenTrades(request, env) {
 
     return Response.json({ count: trades.length, trades })
   } catch (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json(
+      { error: error.message },
+      { status: 500 }
+    )
   }
 }
 
 export async function handleGetClosedTrades(request, env) {
   if (request.method !== "GET") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 })
+    return Response.json(
+      { error: "Method not allowed" },
+      { status: 405 }
+    )
   }
 
   try {
     const oandaTrades = await getClosedTrades(env)
-    const tradeIds = oandaTrades.map((trade) => String(trade.id))
-    const signalMap = await getSignalsByOandaTradeIds(env, tradeIds)
+    const tradeIds = oandaTrades.map((trade) =>
+      String(trade.id)
+    )
+    const signalMap =
+      await getSignalsByOandaTradeIds(env, tradeIds)
 
     const trades = oandaTrades.map((trade) => {
       const signal = signalMap.get(String(trade.id))
@@ -90,7 +106,7 @@ export async function handleGetClosedTrades(request, env) {
         financing: trade.financing ?? null,
         automated: Boolean(signal),
         entryType: signal ? "Automated" : "Manual",
-        exitType: getExitType(trade, signal),
+        exitType: getExitType(trade),
         closeTransactionId: trade.closeTransactionId ?? null,
         strategyName: signal?.strategy_name ?? null,
         signalId: signal?.signal_id ?? null,
@@ -98,8 +114,14 @@ export async function handleGetClosedTrades(request, env) {
       }
     })
 
-    return Response.json({ count: trades.length, trades })
+    return Response.json({
+      count: trades.length,
+      trades,
+    })
   } catch (error) {
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json(
+      { error: error.message },
+      { status: 500 }
+    )
   }
 }
