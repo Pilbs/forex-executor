@@ -61,7 +61,7 @@ export async function placeMarketOrder(env, signal) {
   }
 
   const response = await fetch(
-    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/orders`,
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/orders`,
     {
       method: "POST",
       headers: {
@@ -114,7 +114,7 @@ export async function placeMarketOrder(env, signal) {
 
 export async function getOpenTrades(env) {
   const response = await fetch(
-    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`,
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`,
     {
       method: "GET",
       headers: {
@@ -134,10 +134,31 @@ export async function getOpenTrades(env) {
 
   return data.trades ?? []
 }
+
 
 export async function getClosedTrades(env, count = 100) {
-  const response = await fetch(
-    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades?state=CLOSED&count=${count}`,
+  const summary = await getAccountSummary(env)
+  const lastTransactionId = summary.lastTransactionID
+
+  if (!lastTransactionId) {
+    return []
+  }
+
+  const lastId = BigInt(lastTransactionId)
+  const transactionWindow = BigInt(Math.max(count * 10, 1000))
+  const firstId =
+    lastId >= transactionWindow
+      ? lastId - transactionWindow + 1n
+      : 1n
+
+  const transactionParams = new URLSearchParams({
+    from: firstId.toString(),
+    to: lastId.toString(),
+    type: "ORDER_FILL",
+  })
+
+  const transactionResponse = await fetch(
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/idrange?${transactionParams}`,
     {
       method: "GET",
       headers: {
@@ -147,16 +168,82 @@ export async function getClosedTrades(env, count = 100) {
     }
   )
 
-  const data = await response.json()
+  const transactionData = await transactionResponse.json()
 
-  if (!response.ok) {
+  if (!transactionResponse.ok) {
     throw new Error(
-      data.errorMessage || `OANDA request failed: ${response.status}`
+      transactionData.errorMessage ||
+      `OANDA transaction request failed: ${transactionResponse.status}`
     )
   }
 
-  return data.trades ?? []
+  const closedTradeEvents = []
+
+  for (const transaction of transactionData.transactions ?? []) {
+    for (const closedTrade of transaction.tradesClosed ?? []) {
+      closedTradeEvents.push({
+        tradeId: String(closedTrade.tradeID),
+        closeTime: transaction.time ?? null,
+        transactionId: transaction.id ?? null,
+      })
+    }
+  }
+
+  closedTradeEvents.sort((a, b) => {
+    if (a.closeTime && b.closeTime) {
+      return b.closeTime.localeCompare(a.closeTime)
+    }
+
+    return Number(b.transactionId ?? 0) - Number(a.transactionId ?? 0)
+  })
+
+  const recentTradeIds = [
+    ...new Set(
+      closedTradeEvents.map((event) => event.tradeId)
+    ),
+  ].slice(0, count)
+
+  if (recentTradeIds.length === 0) {
+    return []
+  }
+
+  const tradeParams = new URLSearchParams({
+    ids: recentTradeIds.join(","),
+  })
+
+  const tradeResponse = await fetch(
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades?${tradeParams}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  )
+
+  const tradeData = await tradeResponse.json()
+
+  if (!tradeResponse.ok) {
+    throw new Error(
+      tradeData.errorMessage ||
+      `OANDA trade request failed: ${tradeResponse.status}`
+    )
+  }
+
+  const closeOrder = new Map(
+    recentTradeIds.map((tradeId, index) => [tradeId, index])
+  )
+
+  return (tradeData.trades ?? [])
+    .filter((trade) => trade.state === "CLOSED")
+    .sort(
+      (a, b) =>
+        (closeOrder.get(String(a.id)) ?? Number.MAX_SAFE_INTEGER) -
+        (closeOrder.get(String(b.id)) ?? Number.MAX_SAFE_INTEGER)
+    )
 }
+
 
 export async function updateTradeStopLoss(
   env,
@@ -164,7 +251,7 @@ export async function updateTradeStopLoss(
   stopLoss
 ) {
   const response = await fetch(
-    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
     {
       method: "PUT",
       headers: {
@@ -200,6 +287,7 @@ export async function updateTradeStopLoss(
   }
 }
 
+
 export async function updateTradeBracket(
   env,
   tradeId,
@@ -207,7 +295,7 @@ export async function updateTradeBracket(
   takeProfit
 ) {
   const response = await fetch(
-    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
     {
       method: "PUT",
       headers: {
@@ -253,7 +341,7 @@ export async function closeTrade(
   tradeId
 ) {
   const response = await fetch(
-    `https://api-fxpractice.oanda.com/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/close`,
+    `${OANDA_BASE_URL}/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/close`,
     {
       method: "PUT",
       headers: {
