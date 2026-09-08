@@ -29,55 +29,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  async function refreshClosedTrades() {
-    try {
-      const closedData = await getClosedTrades()
-
-      setClosedTrades(closedData.trades)
-    } catch (error) {
-      console.error(
-        "Trade history refresh failed:",
-        error
-      )
-    }
-  }
-
   async function loadLiveData() {
-    const liveData = await getLiveDashboard()
-
-    setAccount(liveData.account)
-
-    setOpenTrades((previousOpenTrades) => {
-      const previousIds = new Set(
-        previousOpenTrades.map((trade) =>
-          String(trade.tradeId)
-        )
-      )
-
-      const currentIds = new Set(
-        liveData.openTrades.map((trade) =>
-          String(trade.tradeId)
-        )
-      )
-
-      const tradeClosed =
-        [...previousIds].some(
-          (tradeId) => !currentIds.has(tradeId)
-        )
-
-      if (tradeClosed) {
-        refreshClosedTrades()
-      }
-
-      return liveData.openTrades
-    })
-  }
-
-
-  useEffect(() => {
-
-async function loadInitialData() {
-  try {
     const [
       liveData,
       closedData,
@@ -89,14 +41,22 @@ async function loadInitialData() {
     setAccount(liveData.account)
     setOpenTrades(liveData.openTrades)
     setClosedTrades(closedData.trades)
-
-  } catch (error) {
-    setError(error.message)
-
-  } finally {
-    setLoading(false)
   }
-}
+
+
+  useEffect(() => {
+
+    async function loadInitialData() {
+      try {
+        await loadLiveData()
+
+      } catch (error) {
+        setError(error.message)
+
+      } finally {
+        setLoading(false)
+      }
+    }
 
 
     loadInitialData()
@@ -111,7 +71,7 @@ async function loadInitialData() {
         await loadLiveData()
       } catch (error) {
         console.error(
-          "Live refresh failed:",
+          "Dashboard refresh failed:",
           error
         )
       }
@@ -145,9 +105,6 @@ async function loadInitialData() {
         handleVisibilityChange
       )
     }
-
-
-    return () => clearInterval(interval)
 
   }, [])
 
