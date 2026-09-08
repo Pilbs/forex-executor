@@ -3,6 +3,7 @@ import {
   getClosedTrades,
 } from "../services/oanda.js"
 import { getSignalsByOandaTradeIds } from "../services/signals.js"
+import { JOURNAL_VERSION } from "../services/trade-history.js"
 
 function getExitType(trade) {
   if (trade.closeReason === "STOP_LOSS_ORDER") {
@@ -13,10 +14,20 @@ function getExitType(trade) {
     return "Take Profit"
   }
 
+  if (trade.closeReason === "TRAILING_STOP_LOSS_ORDER") {
+    return "Trailing Stop Loss"
+  }
+
+  if (trade.closeReason === "GUARANTEED_STOP_LOSS_ORDER") {
+    return "Guaranteed Stop Loss"
+  }
+
   if (
     trade.closeReason === "MARKET_ORDER_TRADE_CLOSE" ||
-    trade.closeReason === "MARKET_ORDER"
+    trade.closeReason === "MARKET_ORDER" ||
+    trade.closeReason === "MARKET_ORDER_POSITION_CLOSEOUT"
   ) {
+    // The fill reason alone cannot distinguish a human from a bot.
     return "Market Close"
   }
 
@@ -98,8 +109,8 @@ export async function handleGetClosedTrades(request, env) {
         units: Math.abs(initialUnits),
         entryPrice: trade.price,
         closePrice: trade.averageClosePrice ?? null,
-        stopLoss: signal?.requested_stop_loss ?? null,
-        takeProfit: signal?.requested_take_profit ?? null,
+        stopLoss: signal?.requested_stop_loss ?? trade.stopLossOrder?.price ?? null,
+        takeProfit: signal?.requested_take_profit ?? trade.takeProfitOrder?.price ?? null,
         openTime: trade.openTime,
         closeTime: trade.closeTime ?? null,
         realisedPL: trade.realizedPL,
@@ -108,20 +119,24 @@ export async function handleGetClosedTrades(request, env) {
         entryType: signal ? "Automated" : "Manual",
         exitType: getExitType(trade),
         closeTransactionId: trade.closeTransactionId ?? null,
+        closingTransactionIds: trade.closingTransactionIDs ?? [],
+        historySource: trade.historySource,
         strategyName: signal?.strategy_name ?? null,
         signalId: signal?.signal_id ?? null,
-        oandaOrderId: signal?.oanda_order_id ?? null,
+        oandaOrderId: signal?.oanda_order_id ?? trade.openingOrderId ?? null,
       }
     })
 
     return Response.json({
       count: trades.length,
       trades,
-    })
+      journalVersion: JOURNAL_VERSION,
+      source: "oanda-transactions",
+    }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {
     return Response.json(
-      { error: error.message },
-      { status: 500 }
+      { error: error.message, journalVersion: JOURNAL_VERSION },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     )
   }
 }

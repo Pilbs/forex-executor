@@ -1,3 +1,5 @@
+import { buildClosedTradesFromTransactions } from "./trade-history.js"
+
 const OANDA_BASE_URL = "https://api-fxpractice.oanda.com"
 
 function headers(env) {
@@ -110,148 +112,34 @@ export async function getOpenTrades(env) {
   return data.trades ?? []
 }
 
-async function getAllOpenedTradeIds(env, lastTransactionId) {
+export async function getClosedTrades(env, count = 100) {
+  const summary = await getAccountSummary(env)
+  const lastTransactionId = summary.lastTransactionID
+  if (!/^\d+$/.test(String(lastTransactionId ?? ""))) {
+    throw new Error("OANDA summary did not return a valid lastTransactionID")
+  }
+
+  // Take a fixed snapshot. Page through account history without one HTTP request
+  // per trade. Never re-fetch /trades/:id: a missing resource must not erase a fill.
   const lastId = BigInt(lastTransactionId)
-  const chunkSize = 1000n
-  const tradeIds = []
-  const seen = new Set()
-
-  for (let from = 1n; from <= lastId; from += chunkSize) {
-    const to =
-      from + chunkSize - 1n > lastId
-        ? lastId
-        : from + chunkSize - 1n
-
+  const transactions = []
+  for (let from = 1n; from <= lastId; from += 1000n) {
+    const to = from + 999n < lastId ? from + 999n : lastId
     const params = new URLSearchParams({
       from: from.toString(),
       to: to.toString(),
     })
-
     const data = await oandaJson(
       env,
       `/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/idrange?${params}`
     )
-
-    for (const transaction of data.transactions ?? []) {
-      if (transaction.type !== "ORDER_FILL") {
-        continue
-      }
-
-      const candidates = []
-
-      if (transaction.tradeOpened?.tradeID) {
-        candidates.push(String(transaction.tradeOpened.tradeID))
-      }
-
-      if (
-        transaction.reason === "MARKET_ORDER" &&
-        transaction.id
-      ) {
-        candidates.push(String(transaction.id))
-      }
-
-      for (const tradeId of candidates) {
-        if (!seen.has(tradeId)) {
-          seen.add(tradeId)
-          tradeIds.push(tradeId)
-        }
-      }
+    if (!Array.isArray(data.transactions)) {
+      throw new Error(`OANDA transaction page ${from}-${to} is missing transactions`)
     }
+    transactions.push(...data.transactions)
   }
 
-  return tradeIds
-}
-
-async function getTradeById(env, tradeId) {
-  const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}`
-  )
-
-  return data.trade ?? null
-}
-
-async function getTransactionById(env, transactionId) {
-  if (!transactionId) {
-    return null
-  }
-
-  const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/${transactionId}`
-  )
-
-  return data.transaction ?? null
-}
-
-export async function getClosedTrades(env, count = 100) {
-  const summary = await getAccountSummary(env)
-  const lastTransactionId = summary.lastTransactionID
-
-  if (!lastTransactionId) {
-    return []
-  }
-
-  const openedTradeIds = await getAllOpenedTradeIds(
-    env,
-    lastTransactionId
-  )
-
-  const tradeResults = await Promise.all(
-    openedTradeIds.map(async (tradeId) => {
-      try {
-        return await getTradeById(env, tradeId)
-      } catch (error) {
-        console.error(`Failed to load trade ${tradeId}:`, error)
-        return null
-      }
-    })
-  )
-
-  const closedTrades = tradeResults
-    .filter((trade) => trade?.state === "CLOSED")
-    .sort((a, b) =>
-      String(b.closeTime ?? "").localeCompare(
-        String(a.closeTime ?? "")
-      )
-    )
-    .slice(0, count)
-
-  const enrichedTrades = await Promise.all(
-    closedTrades.map(async (trade) => {
-      const closingIds = trade.closingTransactionIDs ?? []
-      const closeTransactionId =
-        closingIds.length > 0
-          ? String(closingIds[closingIds.length - 1])
-          : null
-
-      let closeReason = null
-
-      if (closeTransactionId) {
-        try {
-          const transaction = await getTransactionById(
-            env,
-            closeTransactionId
-          )
-
-          closeReason = transaction?.reason ?? null
-        } catch (error) {
-          console.error(
-            `Failed to load closing transaction ${closeTransactionId}:`,
-            error
-          )
-        }
-      }
-
-      return {
-        ...trade,
-        closeTransactionId,
-        closeReason,
-      }
-    })
-  )
-
-  return enrichedTrades
+  return buildClosedTradesFromTransactions(transactions, count)
 }
 
 export async function updateTradeStopLoss(env, tradeId, stopLoss) {

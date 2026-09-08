@@ -9,7 +9,7 @@ import {
 import { handleGetLiveDashboard } from "./routes/dashboard.js"
 import { handleTradingViewWebhook } from "./routes/tradingview.js"
 
-const JOURNAL_VERSION = "journal-v3-open-fill-fallback"
+import { JOURNAL_VERSION } from "./services/trade-history.js"
 
 export default {
   async fetch(request, env, ctx) {

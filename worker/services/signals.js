@@ -139,32 +139,32 @@ export async function getSignalsByOandaTradeIds(env, tradeIds) {
     return new Map()
   }
 
-  const placeholders = tradeIds
-    .map(() => "?")
-    .join(", ")
-
-  const result = await env.DB
-    .prepare(`
-      SELECT
-        signal_id,
-        strategy_name,
-        oanda_order_id,
-        oanda_trade_id,
-        requested_stop_loss,
-        requested_take_profit,
-        bot_close_transaction_id
-      FROM trade_signals
-      WHERE oanda_trade_id IN (${placeholders})
-    `)
-    .bind(...tradeIds)
-    .all()
-
-  return new Map(
-    result.results.map((row) => [
-      String(row.oanda_trade_id),
-      row,
-    ])
-  )
+  // D1 permits at most 100 bound parameters per statement. Read only entry
+  // metadata; journal rows must not depend on the removed bot-close migration.
+  const signalMap = new Map()
+  const ids = [...new Set(tradeIds.map(String))]
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const batch = ids.slice(offset, offset + 100)
+    const placeholders = batch.map(() => "?").join(", ")
+    const result = await env.DB
+      .prepare(`
+        SELECT
+          signal_id,
+          strategy_name,
+          oanda_order_id,
+          oanda_trade_id,
+          requested_stop_loss,
+          requested_take_profit
+        FROM trade_signals
+        WHERE oanda_trade_id IN (${placeholders})
+      `)
+      .bind(...batch)
+      .all()
+    for (const row of result.results) {
+      signalMap.set(String(row.oanda_trade_id), row)
+    }
+  }
+  return signalMap
 }
 
 export async function getSignalByStrategySignalId(
