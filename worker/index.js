@@ -9,14 +9,24 @@ import {
 import { handleGetLiveDashboard } from "./routes/dashboard.js"
 import { handleTradingViewWebhook } from "./routes/tradingview.js"
 
+const JOURNAL_VERSION = "journal-v3-open-fill-fallback"
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
 
     if (url.pathname === "/api/health") {
-      return Response.json({
-        status: "ok",
-      })
+      return Response.json(
+        {
+          status: "ok",
+          journalVersion: JOURNAL_VERSION,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      )
     }
 
     if (url.pathname === "/api/db/health") {
