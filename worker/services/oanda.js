@@ -125,7 +125,6 @@ async function getAllOpenedTradeIds(env, lastTransactionId) {
     const params = new URLSearchParams({
       from: from.toString(),
       to: to.toString(),
-      type: "ORDER_FILL",
     })
 
     const data = await oandaJson(
@@ -134,15 +133,16 @@ async function getAllOpenedTradeIds(env, lastTransactionId) {
     )
 
     for (const transaction of data.transactions ?? []) {
+      if (transaction.type !== "ORDER_FILL") {
+        continue
+      }
+
       const candidates = []
 
       if (transaction.tradeOpened?.tradeID) {
         candidates.push(String(transaction.tradeOpened.tradeID))
       }
 
-      // OANDA trade IDs are created from the opening fill transaction.
-      // Keep the fill transaction ID as a fallback so a journal entry is not
-      // lost if tradeOpened is absent from a returned transaction payload.
       if (
         transaction.reason === "MARKET_ORDER" &&
         transaction.id
