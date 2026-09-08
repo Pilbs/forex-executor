@@ -110,6 +110,70 @@ export async function getOpenTrades(env) {
   return data.trades ?? []
 }
 
+async function getAllOpenedTradeIds(env, lastTransactionId) {
+  const lastId = BigInt(lastTransactionId)
+  const chunkSize = 1000n
+  const tradeIds = []
+  const seen = new Set()
+
+  for (let from = 1n; from <= lastId; from += chunkSize) {
+    const to =
+      from + chunkSize - 1n > lastId
+        ? lastId
+        : from + chunkSize - 1n
+
+    const params = new URLSearchParams({
+      from: from.toString(),
+      to: to.toString(),
+      type: "ORDER_FILL",
+    })
+
+    const data = await oandaJson(
+      env,
+      `/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/idrange?${params}`
+    )
+
+    for (const transaction of data.transactions ?? []) {
+      const tradeId = transaction.tradeOpened?.tradeID
+
+      if (!tradeId) {
+        continue
+      }
+
+      const key = String(tradeId)
+
+      if (!seen.has(key)) {
+        seen.add(key)
+        tradeIds.push(key)
+      }
+    }
+  }
+
+  return tradeIds
+}
+
+async function getTradeById(env, tradeId) {
+  const data = await oandaJson(
+    env,
+    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}`
+  )
+
+  return data.trade ?? null
+}
+
+async function getTransactionById(env, transactionId) {
+  if (!transactionId) {
+    return null
+  }
+
+  const data = await oandaJson(
+    env,
+    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/${transactionId}`
+  )
+
+  return data.transaction ?? null
+}
+
 export async function getClosedTrades(env, count = 100) {
   const summary = await getAccountSummary(env)
   const lastTransactionId = summary.lastTransactionID
@@ -118,97 +182,66 @@ export async function getClosedTrades(env, count = 100) {
     return []
   }
 
-  const lastId = BigInt(lastTransactionId)
-  const transactionWindow = BigInt(Math.max(count * 10, 1000))
-  const firstId =
-    lastId >= transactionWindow
-      ? lastId - transactionWindow + 1n
-      : 1n
-
-  const params = new URLSearchParams({
-    from: firstId.toString(),
-    to: lastId.toString(),
-    type: "ORDER_FILL",
-  })
-
-  const transactionData = await oandaJson(
+  const openedTradeIds = await getAllOpenedTradeIds(
     env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/idrange?${params}`
+    lastTransactionId
   )
 
-  const events = []
-
-  for (const transaction of transactionData.transactions ?? []) {
-    for (const closed of transaction.tradesClosed ?? []) {
-      events.push({
-        tradeId: String(closed.tradeID),
-        closeTime: transaction.time ?? null,
-        transactionId: transaction.id ?? null,
-        reason: transaction.reason ?? null,
-      })
-    }
-
-    if (transaction.tradeReduced?.tradeID) {
-      events.push({
-        tradeId: String(transaction.tradeReduced.tradeID),
-        closeTime: transaction.time ?? null,
-        transactionId: transaction.id ?? null,
-        reason: transaction.reason ?? null,
-      })
-    }
-  }
-
-  events.sort((a, b) => {
-    if (a.closeTime && b.closeTime) {
-      return b.closeTime.localeCompare(a.closeTime)
-    }
-
-    return Number(b.transactionId ?? 0) - Number(a.transactionId ?? 0)
-  })
-
-  const eventByTradeId = new Map()
-
-  for (const event of events) {
-    if (!eventByTradeId.has(event.tradeId)) {
-      eventByTradeId.set(event.tradeId, event)
-    }
-  }
-
-  const recentTradeIds = [
-    ...eventByTradeId.keys(),
-  ].slice(0, count)
-
-  const trades = await Promise.all(
-    recentTradeIds.map(async (tradeId) => {
+  const tradeResults = await Promise.all(
+    openedTradeIds.map(async (tradeId) => {
       try {
-        const data = await oandaJson(
-          env,
-          `/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}`
-        )
-
-        const trade = data.trade
-        const event = eventByTradeId.get(tradeId)
-
-        if (!trade || trade.state !== "CLOSED") {
-          return null
-        }
-
-        return {
-          ...trade,
-          closeTransactionId: event?.transactionId ?? null,
-          closeReason: event?.reason ?? null,
-        }
+        return await getTradeById(env, tradeId)
       } catch (error) {
-        console.error(
-          `Failed to load closed trade ${tradeId}:`,
-          error
-        )
+        console.error(`Failed to load trade ${tradeId}:`, error)
         return null
       }
     })
   )
 
-  return trades.filter(Boolean)
+  const closedTrades = tradeResults
+    .filter((trade) => trade?.state === "CLOSED")
+    .sort((a, b) =>
+      String(b.closeTime ?? "").localeCompare(
+        String(a.closeTime ?? "")
+      )
+    )
+    .slice(0, count)
+
+  const enrichedTrades = await Promise.all(
+    closedTrades.map(async (trade) => {
+      const closingIds = trade.closingTransactionIDs ?? []
+      const closeTransactionId =
+        closingIds.length > 0
+          ? String(closingIds[closingIds.length - 1])
+          : null
+
+      let closeReason = null
+
+      if (closeTransactionId) {
+        try {
+          const transaction = await getTransactionById(
+            env,
+            closeTransactionId
+          )
+
+          closeReason = transaction?.reason ?? null
+        } catch (error) {
+          console.error(
+            `Failed to load closing transaction ${closeTransactionId}:`,
+            error
+          )
+        }
+      }
+
+      return {
+        ...trade,
+        closeTransactionId,
+        closeReason,
+      }
+    })
+  )
+
+  return enrichedTrades
 }
 
 export async function updateTradeStopLoss(env, tradeId, stopLoss) {
