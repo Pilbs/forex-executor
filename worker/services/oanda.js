@@ -134,17 +134,27 @@ async function getAllOpenedTradeIds(env, lastTransactionId) {
     )
 
     for (const transaction of data.transactions ?? []) {
-      const tradeId = transaction.tradeOpened?.tradeID
+      const candidates = []
 
-      if (!tradeId) {
-        continue
+      if (transaction.tradeOpened?.tradeID) {
+        candidates.push(String(transaction.tradeOpened.tradeID))
       }
 
-      const key = String(tradeId)
+      // OANDA trade IDs are created from the opening fill transaction.
+      // Keep the fill transaction ID as a fallback so a journal entry is not
+      // lost if tradeOpened is absent from a returned transaction payload.
+      if (
+        transaction.reason === "MARKET_ORDER" &&
+        transaction.id
+      ) {
+        candidates.push(String(transaction.id))
+      }
 
-      if (!seen.has(key)) {
-        seen.add(key)
-        tradeIds.push(key)
+      for (const tradeId of candidates) {
+        if (!seen.has(tradeId)) {
+          seen.add(tradeId)
+          tradeIds.push(tradeId)
+        }
       }
     }
   }
