@@ -324,10 +324,6 @@ export async function closeTrade(
 
   return {
     tradeId: String(tradeId),
-    closeTransactionId:
-      data.orderFillTransaction?.id ??
-      data.lastTransactionID ??
-      null,
     lastTransactionId: data.lastTransactionID ?? null,
   }
 }
