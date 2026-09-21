@@ -54,7 +54,8 @@ export async function updateSignalStopLoss(
   return updateTradeStopLoss(
     env,
     signal.oanda_trade_id,
-    stopLoss
+    stopLoss,
+    signal.instrument
   )
 }
 
@@ -75,7 +76,8 @@ export async function updateSignalBracket(
     env,
     signal.oanda_trade_id,
     stopLoss,
-    takeProfit
+    takeProfit,
+    signal.instrument
   )
 }
 
@@ -92,7 +94,8 @@ export async function closeSignalTrade(
 
   const result = await closeTrade(
     env,
-    signal.oanda_trade_id
+    signal.oanda_trade_id,
+    signal.instrument
   )
 
   if (result.closeTransactionId) {
