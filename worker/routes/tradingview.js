@@ -71,7 +71,7 @@ export async function handleTradingViewWebhook(
 
 if (action === "entry") {
   const validationErrors =
-    validateSignal(payload)
+    validateSignal(payload, env)
 
   if (validationErrors.length > 0) {
     return Response.json(
