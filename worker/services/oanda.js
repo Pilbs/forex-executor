@@ -1,18 +1,57 @@
 import { buildClosedTradesFromTransactions } from "./trade-history.js"
 
-const OANDA_BASE_URL = "https://api-fxpractice.oanda.com"
+const OANDA_PRACTICE_BASE_URL = "https://api-fxpractice.oanda.com"
+const OANDA_LIVE_BASE_URL = "https://api-fxtrade.oanda.com"
 
-function headers(env) {
+function requireValue(value, name) {
+  if (!value) {
+    throw new Error(`${name} is not configured`)
+  }
+
+  return value
+}
+
+function getDefaultProfile(env) {
   return {
-    Authorization: `Bearer ${env.OANDA_API_TOKEN}`,
+    baseUrl: OANDA_PRACTICE_BASE_URL,
+    token: requireValue(env.OANDA_API_TOKEN, "OANDA_API_TOKEN"),
+    accountId: requireValue(env.OANDA_ACCOUNT_ID, "OANDA_ACCOUNT_ID"),
+  }
+}
+
+function getProfileForInstrument(env, instrument) {
+  if (instrument === "BCO_USD") {
+    if (env.BCO_USD_LIVE_ENABLED !== "true") {
+      throw new Error("BCO_USD live execution is not enabled")
+    }
+
+    return {
+      baseUrl: OANDA_LIVE_BASE_URL,
+      token: requireValue(
+        env.OANDA_LIVE_API_TOKEN,
+        "OANDA_LIVE_API_TOKEN"
+      ),
+      accountId: requireValue(
+        env.OANDA_LIVE_ACCOUNT_ID,
+        "OANDA_LIVE_ACCOUNT_ID"
+      ),
+    }
+  }
+
+  return getDefaultProfile(env)
+}
+
+function headers(profile) {
+  return {
+    Authorization: `Bearer ${profile.token}`,
     "Content-Type": "application/json",
   }
 }
 
-async function oandaJson(env, path, options = {}) {
-  const response = await fetch(`${OANDA_BASE_URL}${path}`, {
+async function oandaJson(profile, path, options = {}) {
+  const response = await fetch(`${profile.baseUrl}${path}`, {
     ...options,
-    headers: headers(env),
+    headers: headers(profile),
   })
 
   const data = await response.json()
@@ -27,25 +66,75 @@ async function oandaJson(env, path, options = {}) {
 }
 
 export async function getAccountSummary(env) {
-  if (!env.OANDA_API_TOKEN) {
-    throw new Error("OANDA_API_TOKEN is not configured")
-  }
-
-  if (!env.OANDA_ACCOUNT_ID) {
-    throw new Error("OANDA_ACCOUNT_ID is not configured")
-  }
+  const profile = getDefaultProfile(env)
 
   return oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/summary`
+    profile,
+    `/v3/accounts/${profile.accountId}/summary`
   )
 }
 
+async function assertInstrumentTradeable(profile, instrument, requestedUnits) {
+  const params = new URLSearchParams({
+    instruments: instrument,
+  })
+
+  const data = await oandaJson(
+    profile,
+    `/v3/accounts/${profile.accountId}/instruments?${params}`
+  )
+
+  const details = (data.instruments ?? []).find(
+    (candidate) => candidate.name === instrument
+  )
+
+  if (!details) {
+    throw new Error(
+      `${instrument} is not available on the configured OANDA live account`
+    )
+  }
+
+  const minimumTradeSize = Number(details.minimumTradeSize)
+  const maximumOrderUnits = Number(details.maximumOrderUnits)
+
+  if (
+    Number.isFinite(minimumTradeSize) &&
+    requestedUnits < minimumTradeSize
+  ) {
+    throw new Error(
+      `${instrument} requires at least ${details.minimumTradeSize} units`
+    )
+  }
+
+  if (
+    Number.isFinite(maximumOrderUnits) &&
+    maximumOrderUnits > 0 &&
+    requestedUnits > maximumOrderUnits
+  ) {
+    throw new Error(
+      `${instrument} cannot exceed ${details.maximumOrderUnits} units on this account`
+    )
+  }
+
+  return details
+}
+
 export async function placeMarketOrder(env, signal) {
+  const profile = getProfileForInstrument(env, signal.instrument)
+  const requestedUnits = Number(signal.requested_units)
+
+  if (signal.instrument === "BCO_USD") {
+    await assertInstrumentTradeable(
+      profile,
+      signal.instrument,
+      requestedUnits
+    )
+  }
+
   const units =
     signal.direction === "buy"
-      ? signal.requested_units
-      : -signal.requested_units
+      ? requestedUnits
+      : -requestedUnits
 
   const order = {
     type: "MARKET",
@@ -70,8 +159,8 @@ export async function placeMarketOrder(env, signal) {
   }
 
   const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/orders`,
+    profile,
+    `/v3/accounts/${profile.accountId}/orders`,
     {
       method: "POST",
       body: JSON.stringify({ order }),
@@ -104,16 +193,21 @@ export async function placeMarketOrder(env, signal) {
 }
 
 export async function getOpenTrades(env) {
+  const profile = getDefaultProfile(env)
   const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/openTrades`
+    profile,
+    `/v3/accounts/${profile.accountId}/openTrades`
   )
 
   return data.trades ?? []
 }
 
 export async function getClosedTrades(env, count = 100) {
-  const summary = await getAccountSummary(env)
+  const profile = getDefaultProfile(env)
+  const summary = await oandaJson(
+    profile,
+    `/v3/accounts/${profile.accountId}/summary`
+  )
   const lastTransactionId = summary.lastTransactionID
   if (!/^\d+$/.test(String(lastTransactionId ?? ""))) {
     throw new Error("OANDA summary did not return a valid lastTransactionID")
@@ -130,8 +224,8 @@ export async function getClosedTrades(env, count = 100) {
       to: to.toString(),
     })
     const data = await oandaJson(
-      env,
-      `/v3/accounts/${env.OANDA_ACCOUNT_ID}/transactions/idrange?${params}`
+      profile,
+      `/v3/accounts/${profile.accountId}/transactions/idrange?${params}`
     )
     if (!Array.isArray(data.transactions)) {
       throw new Error(`OANDA transaction page ${from}-${to} is missing transactions`)
@@ -142,10 +236,19 @@ export async function getClosedTrades(env, count = 100) {
   return buildClosedTradesFromTransactions(transactions, count)
 }
 
-export async function updateTradeStopLoss(env, tradeId, stopLoss) {
+export async function updateTradeStopLoss(
+  env,
+  tradeId,
+  stopLoss,
+  instrument = null
+) {
+  const profile = instrument
+    ? getProfileForInstrument(env, instrument)
+    : getDefaultProfile(env)
+
   const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}/orders`,
     {
       method: "PUT",
       body: JSON.stringify({
@@ -168,11 +271,16 @@ export async function updateTradeBracket(
   env,
   tradeId,
   stopLoss,
-  takeProfit
+  takeProfit,
+  instrument = null
 ) {
+  const profile = instrument
+    ? getProfileForInstrument(env, instrument)
+    : getDefaultProfile(env)
+
   const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/orders`,
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}/orders`,
     {
       method: "PUT",
       body: JSON.stringify({
@@ -196,10 +304,18 @@ export async function updateTradeBracket(
   }
 }
 
-export async function closeTrade(env, tradeId) {
+export async function closeTrade(
+  env,
+  tradeId,
+  instrument = null
+) {
+  const profile = instrument
+    ? getProfileForInstrument(env, instrument)
+    : getDefaultProfile(env)
+
   const data = await oandaJson(
-    env,
-    `/v3/accounts/${env.OANDA_ACCOUNT_ID}/trades/${tradeId}/close`,
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}/close`,
     {
       method: "PUT",
       body: JSON.stringify({ units: "ALL" }),
@@ -208,6 +324,10 @@ export async function closeTrade(env, tradeId) {
 
   return {
     tradeId: String(tradeId),
+    closeTransactionId:
+      data.orderFillTransaction?.id ??
+      data.lastTransactionID ??
+      null,
     lastTransactionId: data.lastTransactionID ?? null,
   }
 }
