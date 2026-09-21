@@ -1,8 +1,9 @@
 const allowedInstruments = [
   "EUR_USD",
+  "BCO_USD",
 ]
 
-export function validateSignal(payload) {
+export function validateSignal(payload, env = {}) {
   const errors = []
 
   if (!payload || typeof payload !== "object") {
@@ -42,8 +43,26 @@ export function validateSignal(payload) {
     errors.push("units must be a positive integer")
   }
 
-  if (payload.units > 10000) {
-    errors.push("units cannot exceed 10000")
+  if (payload.instrument === "EUR_USD" && payload.units > 10000) {
+    errors.push("units cannot exceed 10000 for EUR_USD")
+  }
+
+  if (payload.instrument === "BCO_USD") {
+    if (env.BCO_USD_LIVE_ENABLED !== "true") {
+      errors.push("BCO_USD live execution is not enabled")
+    }
+
+    const maxUnits = Number(env.BCO_USD_MAX_UNITS)
+
+    if (!Number.isInteger(maxUnits) || maxUnits <= 0) {
+      errors.push("BCO_USD_MAX_UNITS must be configured as a positive integer")
+    } else if (Number.isInteger(payload.units) && payload.units > maxUnits) {
+      errors.push(`units cannot exceed ${maxUnits} for BCO_USD`)
+    }
+
+    if (payload.stopLoss === undefined) {
+      errors.push("stopLoss is required for BCO_USD live execution")
+    }
   }
 
   if (
