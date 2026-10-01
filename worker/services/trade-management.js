@@ -2,6 +2,7 @@ import {
   updateTradeStopLoss,
   updateTradeBracket,
   closeTrade,
+  closeTradeUnits,
 } from "./oanda.js"
 
 import {
@@ -107,4 +108,29 @@ export async function closeSignalTrade(
   }
 
   return result
+}
+
+
+export async function closeSignalTradePartial(
+  env,
+  strategyName,
+  signalId,
+  units
+) {
+  const signal = await getExecutedSignal(
+    env,
+    strategyName,
+    signalId
+  )
+
+  if (units >= Number(signal.requested_units)) {
+    throw new Error("partial close units must be less than original requested units")
+  }
+
+  return closeTradeUnits(
+    env,
+    signal.oanda_trade_id,
+    units,
+    signal.instrument
+  )
 }
