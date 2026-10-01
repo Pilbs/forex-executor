@@ -131,6 +131,7 @@ export async function closeSignalTradePartial(
     env,
     signal.oanda_trade_id,
     units,
-    signal.instrument
+    signal.instrument,
+    signal.requested_units
   )
 }
