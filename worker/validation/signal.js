@@ -1,5 +1,6 @@
 const allowedInstruments = [
   "EUR_USD",
+  "GBP_USD",
   "BCO_USD",
 ]
 
@@ -45,6 +46,20 @@ export function validateSignal(payload, env = {}) {
 
   if (payload.instrument === "EUR_USD" && payload.units > 10000) {
     errors.push("units cannot exceed 10000 for EUR_USD")
+  }
+
+  if (payload.instrument === "GBP_USD") {
+    if (env.GBP_USD_LIVE_ENABLED !== "true") {
+      errors.push("GBP_USD live execution is not enabled")
+    }
+
+    if (Number.isInteger(payload.units) && payload.units > 3000) {
+      errors.push("units cannot exceed 3000 for GBP_USD")
+    }
+
+    if (payload.stopLoss === undefined) {
+      errors.push("stopLoss is required for GBP_USD live execution")
+    }
   }
 
   if (payload.instrument === "BCO_USD") {
