@@ -5,12 +5,14 @@ import {
   validateUpdateStop,
   validateUpdateBracket,
   validateClose,
+  validatePartialClose,
 } from "../validation/trade-management.js"
 
 import {
   updateSignalStopLoss,
   updateSignalBracket,
   closeSignalTrade,
+  closeSignalTradePartial,
 } from "../services/trade-management.js"
 
 const TRADINGVIEW_IPS = new Set([
@@ -251,6 +253,53 @@ if (action === "update_bracket") {
   )
 }
 
+
+
+// ─────────────────────────────────────────────
+// PARTIAL CLOSE
+// ─────────────────────────────────────────────
+
+if (action === "partial_close") {
+  const validationErrors =
+    validatePartialClose(payload)
+
+  if (validationErrors.length > 0) {
+    return Response.json(
+      {
+        accepted: false,
+        errors: validationErrors,
+      },
+      {
+        status: 400,
+      }
+    )
+  }
+
+  ctx.waitUntil(
+    closeSignalTradePartial(
+      env,
+      payload.strategyName,
+      payload.signalId,
+      payload.units
+    ).catch((error) => {
+      console.error(
+        "Background partial close failed:",
+        error
+      )
+    })
+  )
+
+  return Response.json(
+    {
+      accepted: true,
+      action: "partial_close",
+      executionScheduled: true,
+    },
+    {
+      status: 202,
+    }
+  )
+}
 
 // ─────────────────────────────────────────────
 // CLOSE
