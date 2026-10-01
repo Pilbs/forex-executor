@@ -62,3 +62,21 @@ export function validateUpdateBracket(payload) {
 
   return errors
 }
+
+export function validatePartialClose(payload) {
+  const errors = []
+
+  if (!payload.signalId || typeof payload.signalId !== "string") {
+    errors.push("signalId is required")
+  }
+
+  if (!payload.strategyName || typeof payload.strategyName !== "string") {
+    errors.push("strategyName is required")
+  }
+
+  if (!Number.isInteger(payload.units) || payload.units <= 0) {
+    errors.push("units must be a positive integer")
+  }
+
+  return errors
+}
