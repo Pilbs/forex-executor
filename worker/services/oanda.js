@@ -354,7 +354,8 @@ export async function closeTradeUnits(
   env,
   tradeId,
   units,
-  instrument = null
+  instrument = null,
+  originalUnits = null
 ) {
   const profile = instrument
     ? getProfileForInstrument(env, instrument)
@@ -371,6 +372,21 @@ export async function closeTradeUnits(
     return {
       tradeId: String(tradeId),
       alreadyReducedOrClosed: true,
+      lastTransactionId: current.lastTransactionID ?? null,
+    }
+  }
+
+  const original = Math.abs(Number(originalUnits))
+
+  if (
+    Number.isFinite(original) &&
+    original > 0 &&
+    currentUnits < original
+  ) {
+    return {
+      tradeId: String(tradeId),
+      alreadyReducedOrClosed: true,
+      currentUnits,
       lastTransactionId: current.lastTransactionID ?? null,
     }
   }
