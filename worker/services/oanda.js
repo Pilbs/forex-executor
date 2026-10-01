@@ -348,3 +348,57 @@ export async function closeTrade(
     lastTransactionId: data.lastTransactionID ?? null,
   }
 }
+
+
+export async function closeTradeUnits(
+  env,
+  tradeId,
+  units,
+  instrument = null
+) {
+  const profile = instrument
+    ? getProfileForInstrument(env, instrument)
+    : getDefaultProfile(env)
+
+  const current = await oandaJson(
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}`
+  )
+
+  const currentUnits = Math.abs(Number(current.trade?.currentUnits))
+
+  if (!Number.isFinite(currentUnits) || currentUnits <= 0) {
+    return {
+      tradeId: String(tradeId),
+      alreadyReducedOrClosed: true,
+      lastTransactionId: current.lastTransactionID ?? null,
+    }
+  }
+
+  const closeUnits = Number(units)
+
+  if (!Number.isInteger(closeUnits) || closeUnits <= 0) {
+    throw new Error("partial close units must be a positive integer")
+  }
+
+  if (closeUnits >= currentUnits) {
+    throw new Error(
+      `partial close units must be less than current open units (${currentUnits})`
+    )
+  }
+
+  const data = await oandaJson(
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}/close`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ units: String(closeUnits) }),
+    }
+  )
+
+  return {
+    tradeId: String(tradeId),
+    closedUnits: closeUnits,
+    lastTransactionId: data.lastTransactionID ?? null,
+  }
+}
