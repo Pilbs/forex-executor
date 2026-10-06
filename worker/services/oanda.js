@@ -56,6 +56,24 @@ function getProfileForInstrument(env, instrument) {
     }
   }
 
+  if (instrument === "GBP_CAD") {
+    if (env.GBP_CAD_LIVE_ENABLED !== "true") {
+      throw new Error("GBP_CAD live execution is not enabled")
+    }
+
+    return {
+      baseUrl: OANDA_LIVE_BASE_URL,
+      token: requireValue(
+        env.OANDA_LIVE_API_TOKEN,
+        "OANDA_LIVE_API_TOKEN"
+      ),
+      accountId: requireValue(
+        env.OANDA_LIVE_ACCOUNT_ID,
+        "OANDA_LIVE_ACCOUNT_ID"
+      ),
+    }
+  }
+
   if (instrument === "BCO_USD") {
     if (env.BCO_USD_LIVE_ENABLED !== "true") {
       throw new Error("BCO_USD live execution is not enabled")
@@ -162,7 +180,8 @@ export async function placeMarketOrder(env, signal) {
   if (
     signal.instrument === "EUR_USD" ||
     signal.instrument === "BCO_USD" ||
-    signal.instrument === "GBP_USD"
+    signal.instrument === "GBP_USD" ||
+    signal.instrument === "GBP_CAD"
   ) {
     await assertInstrumentTradeable(
       profile,
