@@ -1,6 +1,7 @@
 const allowedInstruments = [
   "EUR_USD",
   "GBP_USD",
+  "GBP_CAD",
   "BCO_USD",
 ]
 
@@ -73,6 +74,24 @@ export function validateSignal(payload, env = {}) {
 
     if (payload.stopLoss === undefined) {
       errors.push("stopLoss is required for GBP_USD live execution")
+    }
+  }
+
+  if (payload.instrument === "GBP_CAD") {
+    if (env.GBP_CAD_LIVE_ENABLED !== "true") {
+      errors.push("GBP_CAD live execution is not enabled")
+    }
+
+    const maxUnits = Number(env.GBP_CAD_MAX_UNITS)
+
+    if (!Number.isInteger(maxUnits) || maxUnits <= 0) {
+      errors.push("GBP_CAD_MAX_UNITS must be configured as a positive integer")
+    } else if (Number.isInteger(payload.units) && payload.units > maxUnits) {
+      errors.push(`units cannot exceed ${maxUnits} for GBP_CAD`)
+    }
+
+    if (payload.stopLoss === undefined) {
+      errors.push("stopLoss is required for GBP_CAD live execution")
     }
   }
 
