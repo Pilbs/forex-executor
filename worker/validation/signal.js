@@ -44,8 +44,22 @@ export function validateSignal(payload, env = {}) {
     errors.push("units must be a positive integer")
   }
 
-  if (payload.instrument === "EUR_USD" && payload.units > 10000) {
-    errors.push("units cannot exceed 10000 for EUR_USD")
+  if (payload.instrument === "EUR_USD") {
+    if (env.EUR_USD_LIVE_ENABLED !== "true") {
+      errors.push("EUR_USD live execution is not enabled")
+    }
+
+    const maxUnits = Number(env.EUR_USD_MAX_UNITS ?? 10000)
+
+    if (!Number.isInteger(maxUnits) || maxUnits <= 0) {
+      errors.push("EUR_USD_MAX_UNITS must be configured as a positive integer")
+    } else if (Number.isInteger(payload.units) && payload.units > maxUnits) {
+      errors.push(`units cannot exceed ${maxUnits} for EUR_USD`)
+    }
+
+    if (payload.stopLoss === undefined) {
+      errors.push("stopLoss is required for EUR_USD live execution")
+    }
   }
 
   if (payload.instrument === "GBP_USD") {
