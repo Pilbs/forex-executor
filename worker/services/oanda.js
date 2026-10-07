@@ -25,6 +25,20 @@ function getDefaultProfile(env) {
   }
 }
 
+function getLiveProfile(env) {
+  return {
+    baseUrl: OANDA_LIVE_BASE_URL,
+    token: requireValue(
+      env.OANDA_LIVE_API_TOKEN,
+      "OANDA_LIVE_API_TOKEN"
+    ),
+    accountId: requireValue(
+      env.OANDA_LIVE_ACCOUNT_ID,
+      "OANDA_LIVE_ACCOUNT_ID"
+    ),
+  }
+}
+
 function getProfileForInstrument(env, instrument) {
   if (instrument === "EUR_USD") {
     if (env.EUR_USD_LIVE_ENABLED !== "true") {
@@ -212,12 +226,22 @@ function buildInitialV5Bracket(
   }
 }
 
-export async function getAccountSummary(env) {
-  const profile = getDefaultProfile(env)
-
+async function getAccountSummaryForProfile(profile) {
   return oandaJson(
     profile,
     `/v3/accounts/${profile.accountId}/summary`
+  )
+}
+
+export async function getAccountSummary(env) {
+  return getAccountSummaryForProfile(
+    getDefaultProfile(env)
+  )
+}
+
+export async function getLiveAccountSummary(env) {
+  return getAccountSummaryForProfile(
+    getLiveProfile(env)
   )
 }
 
@@ -399,8 +423,7 @@ export async function placeMarketOrder(env, signal) {
   }
 }
 
-export async function getOpenTrades(env) {
-  const profile = getDefaultProfile(env)
+async function getOpenTradesForProfile(profile) {
   const data = await oandaJson(
     profile,
     `/v3/accounts/${profile.accountId}/openTrades`
@@ -409,8 +432,22 @@ export async function getOpenTrades(env) {
   return data.trades ?? []
 }
 
-export async function getClosedTrades(env, count = 100) {
-  const profile = getDefaultProfile(env)
+export async function getOpenTrades(env) {
+  return getOpenTradesForProfile(
+    getDefaultProfile(env)
+  )
+}
+
+export async function getLiveOpenTrades(env) {
+  return getOpenTradesForProfile(
+    getLiveProfile(env)
+  )
+}
+
+async function getClosedTradesForProfile(
+  profile,
+  count = 100
+) {
   const summary = await oandaJson(
     profile,
     `/v3/accounts/${profile.accountId}/summary`
@@ -441,6 +478,20 @@ export async function getClosedTrades(env, count = 100) {
   }
 
   return buildClosedTradesFromTransactions(transactions, count)
+}
+
+export async function getClosedTrades(env, count = 100) {
+  return getClosedTradesForProfile(
+    getDefaultProfile(env),
+    count
+  )
+}
+
+export async function getLiveClosedTrades(env, count = 100) {
+  return getClosedTradesForProfile(
+    getLiveProfile(env),
+    count
+  )
 }
 
 export async function getTrade(
