@@ -138,7 +138,12 @@ function parseWebhookPayload(signal) {
 }
 
 function formatPrice(instrument, value, displayPrecision = null) {
-  const precision = Number.isInteger(Number(displayPrecision))
+  const hasExplicitPrecision =
+    displayPrecision !== null &&
+    displayPrecision !== undefined &&
+    Number.isInteger(Number(displayPrecision))
+
+  const precision = hasExplicitPrecision
     ? Number(displayPrecision)
     : PRICE_PRECISION_BY_INSTRUMENT[instrument] ?? 5
 
