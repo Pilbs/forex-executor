@@ -168,11 +168,11 @@ function App() {
 
         <div>
           <h1>Forex Executor</h1>
-          <p>OANDA Practice Account</p>
+          <p>OANDA Live Account</p>
         </div>
 
         <span className="environment-badge">
-          PRACTICE
+          LIVE
         </span>
 
       </header>

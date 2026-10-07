@@ -1,6 +1,6 @@
 import {
-  getOpenTrades,
-  getClosedTrades,
+  getLiveOpenTrades,
+  getLiveClosedTrades,
 } from "../services/oanda.js"
 import { getSignalsByOandaTradeIds } from "../services/signals.js"
 import { JOURNAL_VERSION } from "../services/trade-history.js"
@@ -43,7 +43,7 @@ export async function handleGetOpenTrades(request, env) {
   }
 
   try {
-    const oandaTrades = await getOpenTrades(env)
+    const oandaTrades = await getLiveOpenTrades(env)
     const tradeIds = oandaTrades.map((trade) =>
       String(trade.id)
     )
@@ -73,7 +73,7 @@ export async function handleGetOpenTrades(request, env) {
       }
     })
 
-    return Response.json({ count: trades.length, trades })
+    return Response.json({ environment: "live", count: trades.length, trades })
   } catch (error) {
     return Response.json(
       { error: error.message },
@@ -91,7 +91,7 @@ export async function handleGetClosedTrades(request, env) {
   }
 
   try {
-    const oandaTrades = await getClosedTrades(env)
+    const oandaTrades = await getLiveClosedTrades(env)
     const tradeIds = oandaTrades.map((trade) =>
       String(trade.id)
     )
@@ -131,6 +131,7 @@ export async function handleGetClosedTrades(request, env) {
       count: trades.length,
       trades,
       journalVersion: JOURNAL_VERSION,
+      environment: "live",
       source: "oanda-transactions",
     }, { headers: { "Cache-Control": "no-store" } })
   } catch (error) {

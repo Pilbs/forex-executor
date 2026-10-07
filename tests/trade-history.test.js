@@ -32,13 +32,26 @@ function example() {
     { id: "206", type: "ORDER_CANCEL", orderID: "201", reason: "LINKED_TRADE_CLOSED" },
   ]
 }
-function mockBroker(t, transactions, last = "206") {
+function mockBroker(
+  t,
+  transactions,
+  last = "206",
+  {
+    accountId = "test-account",
+    token = "test-token",
+    baseUrl = "https://api-fxpractice.oanda.com",
+  } = {}
+) {
   const calls = []
   t.mock.method(globalThis, "fetch", async (input, options) => {
     const url = new URL(input)
     calls.push(url.pathname)
     assert.equal(options.method ?? "GET", "GET", "journal must never place or close orders")
-    assert.equal(options.headers.Authorization, "Bearer test-token")
+    assert.equal(url.origin, baseUrl)
+    assert.equal(options.headers.Authorization, `Bearer ${token}`)
+    assert.ok(
+      url.pathname.startsWith(`/v3/accounts/${accountId}/`)
+    )
     if (url.pathname.endsWith("/summary")) return Response.json({ lastTransactionID: last })
     if (url.pathname.endsWith("/transactions/idrange")) {
       const from = BigInt(url.searchParams.get("from"))
@@ -192,13 +205,22 @@ test("empty account works; missing summary cursor is an error rather than an emp
 })
 
 test("route preserves automated entry metadata for a market close and exposes source/version", async (t) => {
-  mockBroker(t, example())
+  const liveEnv = {
+    OANDA_LIVE_ACCOUNT_ID: "live-test-account",
+    OANDA_LIVE_API_TOKEN: "live-test-token",
+  }
+  mockBroker(t, example(), "206", {
+    accountId: "live-test-account",
+    token: "live-test-token",
+    baseUrl: "https://api-fxtrade.oanda.com",
+  })
   const DB = database([{ oanda_trade_id: "900", signal_id: "test-signal", strategy_name: "Test Strategy", oanda_order_id: "199", requested_stop_loss: "1.08000" }])
-  const response = await handleGetClosedTrades(new Request("https://example.test/api/oanda/trades/closed"), { ...env, DB })
+  const response = await handleGetClosedTrades(new Request("https://example.test/api/oanda/trades/closed"), { ...liveEnv, DB })
   assert.equal(response.status, 200)
   assert.equal(response.headers.get("Cache-Control"), "no-store")
   const data = await response.json()
   assert.equal(data.journalVersion, JOURNAL_VERSION)
+  assert.equal(data.environment, "live")
   assert.equal(data.source, "oanda-transactions")
   assert.equal(data.trades[0].automated, true)
   assert.equal(data.trades[0].entryType, "Automated")
@@ -208,8 +230,16 @@ test("route preserves automated entry metadata for a market close and exposes so
 })
 
 test("no D1 signal does not remove a manual trade; metadata uses only base-schema columns", async (t) => {
-  mockBroker(t, example())
-  const response = await handleGetClosedTrades(new Request("https://example.test/api/oanda/trades/closed"), { ...env, DB: database() })
+  const liveEnv = {
+    OANDA_LIVE_ACCOUNT_ID: "live-test-account",
+    OANDA_LIVE_API_TOKEN: "live-test-token",
+  }
+  mockBroker(t, example(), "206", {
+    accountId: "live-test-account",
+    token: "live-test-token",
+    baseUrl: "https://api-fxtrade.oanda.com",
+  })
+  const response = await handleGetClosedTrades(new Request("https://example.test/api/oanda/trades/closed"), { ...liveEnv, DB: database() })
   const data = await response.json()
   assert.equal(data.count, 1)
   assert.equal(data.trades[0].entryType, "Manual")
