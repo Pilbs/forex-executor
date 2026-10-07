@@ -1,4 +1,4 @@
-import { getAccountSummary, getOpenTrades } from "../services/oanda.js"
+import { getLiveAccountSummary, getLiveOpenTrades } from "../services/oanda.js"
 import { getSignalsByOandaTradeIds } from "../services/signals.js"
 
 export async function handleGetLiveDashboard(request, env) {
@@ -11,8 +11,8 @@ export async function handleGetLiveDashboard(request, env) {
 
   try {
     const [accountData, oandaTrades] = await Promise.all([
-      getAccountSummary(env),
-      getOpenTrades(env),
+      getLiveAccountSummary(env),
+      getLiveOpenTrades(env),
     ])
 
     const tradeIds = oandaTrades.map((trade) =>
@@ -72,6 +72,7 @@ export async function handleGetLiveDashboard(request, env) {
         pendingOrderCount: accountData.account.pendingOrderCount,
       },
 
+      environment: "live",
       openTrades: trades,
     })
 
