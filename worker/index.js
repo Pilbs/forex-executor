@@ -1,4 +1,4 @@
-import { getAccountSummary } from "./services/oanda.js"
+import { getLiveAccountSummary } from "./services/oanda.js"
 import { getDatabaseHealth } from "./services/database.js"
 import { handleTestSignal } from "./routes/signals.js"
 import { handleExecuteSignal } from "./routes/execution.js"
@@ -49,10 +49,11 @@ export default {
 
     if (url.pathname === "/api/oanda/account") {
       try {
-        const data = await getAccountSummary(env)
+        const data = await getLiveAccountSummary(env)
 
         return Response.json({
           connected: true,
+          environment: "live",
           account: {
             id: data.account.id,
             currency: data.account.currency,
