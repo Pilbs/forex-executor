@@ -1,6 +1,7 @@
 import {
   updateTradeStopLoss,
   updateTradeBracket,
+  updateTradeBracketFromOffsets,
   closeTrade,
   closeTradeUnits,
 } from "./oanda.js"
@@ -38,6 +39,33 @@ async function getExecutedSignal(
   }
 
   return signal
+}
+
+function assertInstrumentMatches(signal, instrument) {
+  if (!instrument) {
+    return
+  }
+
+  if (signal.instrument !== instrument) {
+    throw new Error(
+      `Instrument mismatch: signal is ${signal.instrument}, payload is ${instrument}`
+    )
+  }
+}
+
+function assertCloseDirectionMatches(signal, direction) {
+  if (!direction) {
+    return
+  }
+
+  const expectedDirection =
+    signal.direction === "buy" ? "long" : "short"
+
+  if (direction !== expectedDirection) {
+    throw new Error(
+      `Direction mismatch: signal is ${expectedDirection}, payload is ${direction}`
+    )
+  }
 }
 
 export async function updateSignalStopLoss(
@@ -82,15 +110,56 @@ export async function updateSignalBracket(
   )
 }
 
-export async function closeSignalTrade(
+export async function updateSignalBracketV5(
   env,
   strategyName,
-  signalId
+  signalId,
+  instrument,
+  stopOffsetFromEntry,
+  targetOffsetFromEntry
 ) {
   const signal = await getExecutedSignal(
     env,
     strategyName,
     signalId
+  )
+
+  assertInstrumentMatches(
+    signal,
+    instrument
+  )
+
+  return updateTradeBracketFromOffsets(
+    env,
+    signal.oanda_trade_id,
+    signal.direction,
+    stopOffsetFromEntry,
+    targetOffsetFromEntry,
+    signal.instrument
+  )
+}
+
+export async function closeSignalTrade(
+  env,
+  strategyName,
+  signalId,
+  instrument = null,
+  direction = null
+) {
+  const signal = await getExecutedSignal(
+    env,
+    strategyName,
+    signalId
+  )
+
+  assertInstrumentMatches(
+    signal,
+    instrument
+  )
+
+  assertCloseDirectionMatches(
+    signal,
+    direction
   )
 
   const result = await closeTrade(
@@ -110,12 +179,12 @@ export async function closeSignalTrade(
   return result
 }
 
-
 export async function closeSignalTradePartial(
   env,
   strategyName,
   signalId,
-  units
+  units,
+  instrument = null
 ) {
   const signal = await getExecutedSignal(
     env,
@@ -123,8 +192,15 @@ export async function closeSignalTradePartial(
     signalId
   )
 
+  assertInstrumentMatches(
+    signal,
+    instrument
+  )
+
   if (units >= Number(signal.requested_units)) {
-    throw new Error("partial close units must be less than original requested units")
+    throw new Error(
+      "partial close units must be less than original requested units"
+    )
   }
 
   return closeTradeUnits(

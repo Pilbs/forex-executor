@@ -5,6 +5,17 @@ const allowedInstruments = [
   "BCO_USD",
 ]
 
+const v5StrategyInstruments = {
+  H02_EURUSD_M15: "EUR_USD",
+  H02_GBPUSD_M15: "GBP_USD",
+  H02_GBPCAD_M15: "GBP_CAD",
+}
+
+function isPositiveNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0
+}
+
 export function validateSignal(payload, env = {}) {
   const errors = []
 
@@ -45,6 +56,42 @@ export function validateSignal(payload, env = {}) {
     errors.push("units must be a positive integer")
   }
 
+  const isV5 = payload.version === "v5"
+
+  if (isV5) {
+    const expectedInstrument =
+      v5StrategyInstruments[payload.strategyName]
+
+    if (!expectedInstrument) {
+      errors.push(
+        `unsupported v5 strategyName: ${payload.strategyName}`
+      )
+    } else if (
+      payload.instrument &&
+      payload.instrument !== expectedInstrument
+    ) {
+      errors.push(
+        `strategyName ${payload.strategyName} must use instrument ${expectedInstrument}`
+      )
+    }
+
+    if (!isPositiveNumber(payload.stopDistance)) {
+      errors.push("stopDistance must be a positive number for v5")
+    }
+
+    if (!isPositiveNumber(payload.targetDistance)) {
+      errors.push("targetDistance must be a positive number for v5")
+    }
+
+    if (payload.stopLoss !== undefined) {
+      errors.push("v5 entry must not send stopLoss")
+    }
+
+    if (payload.takeProfit !== undefined) {
+      errors.push("v5 entry must not send takeProfit")
+    }
+  }
+
   if (payload.instrument === "EUR_USD") {
     if (env.EUR_USD_LIVE_ENABLED !== "true") {
       errors.push("EUR_USD live execution is not enabled")
@@ -58,7 +105,7 @@ export function validateSignal(payload, env = {}) {
       errors.push(`units cannot exceed ${maxUnits} for EUR_USD`)
     }
 
-    if (payload.stopLoss === undefined) {
+    if (!isV5 && payload.stopLoss === undefined) {
       errors.push("stopLoss is required for EUR_USD live execution")
     }
   }
@@ -72,7 +119,7 @@ export function validateSignal(payload, env = {}) {
       errors.push("units cannot exceed 3000 for GBP_USD")
     }
 
-    if (payload.stopLoss === undefined) {
+    if (!isV5 && payload.stopLoss === undefined) {
       errors.push("stopLoss is required for GBP_USD live execution")
     }
   }
@@ -90,7 +137,7 @@ export function validateSignal(payload, env = {}) {
       errors.push(`units cannot exceed ${maxUnits} for GBP_CAD`)
     }
 
-    if (payload.stopLoss === undefined) {
+    if (!isV5 && payload.stopLoss === undefined) {
       errors.push("stopLoss is required for GBP_CAD live execution")
     }
   }
@@ -115,15 +162,14 @@ export function validateSignal(payload, env = {}) {
 
   if (
     payload.stopLoss !== undefined &&
-    (!Number.isFinite(Number(payload.stopLoss)) || Number(payload.stopLoss) <= 0)
+    !isPositiveNumber(payload.stopLoss)
   ) {
     errors.push("stopLoss must be a positive number")
   }
 
   if (
     payload.takeProfit !== undefined &&
-    (!Number.isFinite(Number(payload.takeProfit)) ||
-      Number(payload.takeProfit) <= 0)
+    !isPositiveNumber(payload.takeProfit)
   ) {
     errors.push("takeProfit must be a positive number")
   }

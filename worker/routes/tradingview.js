@@ -11,6 +11,7 @@ import {
 import {
   updateSignalStopLoss,
   updateSignalBracket,
+  updateSignalBracketV5,
   closeSignalTrade,
   closeSignalTradePartial,
 } from "../services/trade-management.js"
@@ -66,55 +67,126 @@ export async function handleTradingViewWebhook(
 
   const action = payload.action ?? "entry"
 
+  // ─────────────────────────────────────────────
+  // ENTRY
+  // ─────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// ENTRY
-// ─────────────────────────────────────────────
+  if (action === "entry") {
+    const validationErrors =
+      validateSignal(payload, env)
 
-if (action === "entry") {
-  const validationErrors =
-    validateSignal(payload, env)
+    if (validationErrors.length > 0) {
+      return Response.json(
+        {
+          accepted: false,
+          errors: validationErrors,
+        },
+        {
+          status: 400,
+        }
+      )
+    }
 
-  if (validationErrors.length > 0) {
-    return Response.json(
-      {
-        accepted: false,
-        errors: validationErrors,
-      },
-      {
-        status: 400,
+    try {
+      const result =
+        await saveSignal(env, payload)
+
+      if (result.duplicate) {
+        return Response.json({
+          accepted: true,
+          duplicate: true,
+          executionScheduled: false,
+
+          signal: {
+            id: result.signal.id,
+            signalId: result.signal.signal_id,
+            strategyName:
+              result.signal.strategy_name,
+            status:
+              result.signal.execution_status,
+          },
+        })
       }
-    )
+
+      ctx.waitUntil(
+        executeSignalById(
+          env,
+          result.signal.id
+        ).catch((error) => {
+          console.error(
+            "Background entry execution failed:",
+            error
+          )
+        })
+      )
+
+      return Response.json(
+        {
+          accepted: true,
+          action: "entry",
+          duplicate: false,
+          executionScheduled: true,
+
+          signal: {
+            id: result.signal.id,
+            signalId: result.signal.signal_id,
+            strategyName:
+              result.signal.strategy_name,
+            instrument:
+              result.signal.instrument,
+            direction:
+              result.signal.direction,
+            units:
+              result.signal.requested_units,
+            status: "received",
+          },
+        },
+        {
+          status: 202,
+        }
+      )
+    } catch (error) {
+      return Response.json(
+        {
+          accepted: false,
+          error: error.message,
+        },
+        {
+          status: 500,
+        }
+      )
+    }
   }
 
-  try {
-    const result =
-      await saveSignal(env, payload)
+  // ─────────────────────────────────────────────
+  // UPDATE STOP
+  // ─────────────────────────────────────────────
 
-    if (result.duplicate) {
-      return Response.json({
-        accepted: true,
-        duplicate: true,
-        executionScheduled: false,
+  if (action === "update_stop") {
+    const validationErrors =
+      validateUpdateStop(payload)
 
-        signal: {
-          id: result.signal.id,
-          signalId: result.signal.signal_id,
-          strategyName:
-            result.signal.strategy_name,
-          status:
-            result.signal.execution_status,
+    if (validationErrors.length > 0) {
+      return Response.json(
+        {
+          accepted: false,
+          errors: validationErrors,
         },
-      })
+        {
+          status: 400,
+        }
+      )
     }
 
     ctx.waitUntil(
-      executeSignalById(
+      updateSignalStopLoss(
         env,
-        result.signal.id
+        payload.strategyName,
+        payload.signalId,
+        payload.stopLoss
       ).catch((error) => {
         console.error(
-          "Background entry execution failed:",
+          "Background stop update failed:",
           error
         )
       })
@@ -123,241 +195,185 @@ if (action === "entry") {
     return Response.json(
       {
         accepted: true,
-        action: "entry",
-        duplicate: false,
+        action: "update_stop",
         executionScheduled: true,
-
-        signal: {
-          id: result.signal.id,
-          signalId: result.signal.signal_id,
-          strategyName:
-            result.signal.strategy_name,
-          instrument:
-            result.signal.instrument,
-          direction:
-            result.signal.direction,
-          units:
-            result.signal.requested_units,
-          status: "received",
-        },
       },
       {
         status: 202,
       }
     )
-
-  } catch (error) {
-    return Response.json(
-      {
-        accepted: false,
-        error: error.message,
-      },
-      {
-        status: 500,
-      }
-    )
-  }
-}
-
-
-// ─────────────────────────────────────────────
-// UPDATE STOP
-// ─────────────────────────────────────────────
-
-if (action === "update_stop") {
-  const validationErrors =
-    validateUpdateStop(payload)
-
-  if (validationErrors.length > 0) {
-    return Response.json(
-      {
-        accepted: false,
-        errors: validationErrors,
-      },
-      {
-        status: 400,
-      }
-    )
   }
 
-  ctx.waitUntil(
-    updateSignalStopLoss(
-      env,
-      payload.strategyName,
-      payload.signalId,
-      payload.stopLoss
-    ).catch((error) => {
-      console.error(
-        "Background stop update failed:",
-        error
+  // ─────────────────────────────────────────────
+  // UPDATE BRACKET
+  // ─────────────────────────────────────────────
+
+  if (action === "update_bracket") {
+    const validationErrors =
+      validateUpdateBracket(payload)
+
+    if (validationErrors.length > 0) {
+      return Response.json(
+        {
+          accepted: false,
+          errors: validationErrors,
+        },
+        {
+          status: 400,
+        }
       )
-    })
-  )
+    }
+
+    const updatePromise =
+      payload.version === "v5"
+        ? updateSignalBracketV5(
+            env,
+            payload.strategyName,
+            payload.signalId,
+            payload.instrument,
+            payload.stopOffsetFromEntry,
+            payload.targetOffsetFromEntry
+          )
+        : updateSignalBracket(
+            env,
+            payload.strategyName,
+            payload.signalId,
+            payload.stopLoss,
+            payload.takeProfit
+          )
+
+    ctx.waitUntil(
+      updatePromise.catch((error) => {
+        console.error(
+          "Background bracket update failed:",
+          error
+        )
+      })
+    )
+
+    return Response.json(
+      {
+        accepted: true,
+        action: "update_bracket",
+        executionScheduled: true,
+      },
+      {
+        status: 202,
+      }
+    )
+  }
+
+  // ─────────────────────────────────────────────
+  // PARTIAL CLOSE
+  // ─────────────────────────────────────────────
+
+  if (action === "partial_close") {
+    const validationErrors =
+      validatePartialClose(payload)
+
+    if (validationErrors.length > 0) {
+      return Response.json(
+        {
+          accepted: false,
+          errors: validationErrors,
+        },
+        {
+          status: 400,
+        }
+      )
+    }
+
+    ctx.waitUntil(
+      closeSignalTradePartial(
+        env,
+        payload.strategyName,
+        payload.signalId,
+        payload.units,
+        payload.version === "v5"
+          ? payload.instrument
+          : null
+      ).catch((error) => {
+        console.error(
+          "Background partial close failed:",
+          error
+        )
+      })
+    )
+
+    return Response.json(
+      {
+        accepted: true,
+        action: "partial_close",
+        executionScheduled: true,
+      },
+      {
+        status: 202,
+      }
+    )
+  }
+
+  // ─────────────────────────────────────────────
+  // CLOSE
+  // ─────────────────────────────────────────────
+
+  if (action === "close") {
+    const validationErrors =
+      validateClose(payload)
+
+    if (validationErrors.length > 0) {
+      return Response.json(
+        {
+          accepted: false,
+          errors: validationErrors,
+        },
+        {
+          status: 400,
+        }
+      )
+    }
+
+    ctx.waitUntil(
+      closeSignalTrade(
+        env,
+        payload.strategyName,
+        payload.signalId,
+        payload.version === "v5"
+          ? payload.instrument
+          : null,
+        payload.version === "v5"
+          ? payload.direction
+          : null
+      ).catch((error) => {
+        console.error(
+          "Background trade close failed:",
+          error
+        )
+      })
+    )
+
+    return Response.json(
+      {
+        accepted: true,
+        action: "close",
+        executionScheduled: true,
+      },
+      {
+        status: 202,
+      }
+    )
+  }
+
+  // ─────────────────────────────────────────────
+  // UNKNOWN ACTION
+  // ─────────────────────────────────────────────
 
   return Response.json(
     {
-      accepted: true,
-      action: "update_stop",
-      executionScheduled: true,
+      accepted: false,
+      error: `Unsupported action: ${action}`,
     },
     {
-      status: 202,
+      status: 400,
     }
   )
-}
-
-// ─────────────────────────────────────────────
-// UPDATE BRACKET
-// ─────────────────────────────────────────────
-
-if (action === "update_bracket") {
-  const validationErrors =
-    validateUpdateBracket(payload)
-
-  if (validationErrors.length > 0) {
-    return Response.json(
-      {
-        accepted: false,
-        errors: validationErrors,
-      },
-      {
-        status: 400,
-      }
-    )
-  }
-
-  ctx.waitUntil(
-    updateSignalBracket(
-      env,
-      payload.strategyName,
-      payload.signalId,
-      payload.stopLoss,
-      payload.takeProfit
-    ).catch((error) => {
-      console.error(
-        "Background bracket update failed:",
-        error
-      )
-    })
-  )
-
-  return Response.json(
-    {
-      accepted: true,
-      action: "update_bracket",
-      executionScheduled: true,
-    },
-    {
-      status: 202,
-    }
-  )
-}
-
-
-
-// ─────────────────────────────────────────────
-// PARTIAL CLOSE
-// ─────────────────────────────────────────────
-
-if (action === "partial_close") {
-  const validationErrors =
-    validatePartialClose(payload)
-
-  if (validationErrors.length > 0) {
-    return Response.json(
-      {
-        accepted: false,
-        errors: validationErrors,
-      },
-      {
-        status: 400,
-      }
-    )
-  }
-
-  ctx.waitUntil(
-    closeSignalTradePartial(
-      env,
-      payload.strategyName,
-      payload.signalId,
-      payload.units
-    ).catch((error) => {
-      console.error(
-        "Background partial close failed:",
-        error
-      )
-    })
-  )
-
-  return Response.json(
-    {
-      accepted: true,
-      action: "partial_close",
-      executionScheduled: true,
-    },
-    {
-      status: 202,
-    }
-  )
-}
-
-// ─────────────────────────────────────────────
-// CLOSE
-// ─────────────────────────────────────────────
-
-if (action === "close") {
-  const validationErrors =
-    validateClose(payload)
-
-  if (validationErrors.length > 0) {
-    return Response.json(
-      {
-        accepted: false,
-        errors: validationErrors,
-      },
-      {
-        status: 400,
-      }
-    )
-  }
-
-  ctx.waitUntil(
-    closeSignalTrade(
-      env,
-      payload.strategyName,
-      payload.signalId
-    ).catch((error) => {
-      console.error(
-        "Background trade close failed:",
-        error
-      )
-    })
-  )
-
-  return Response.json(
-    {
-      accepted: true,
-      action: "close",
-      executionScheduled: true,
-    },
-    {
-      status: 202,
-    }
-  )
-}
-
-
-// ─────────────────────────────────────────────
-// UNKNOWN ACTION
-// ─────────────────────────────────────────────
-
-return Response.json(
-  {
-    accepted: false,
-    error: `Unsupported action: ${action}`,
-  },
-  {
-    status: 400,
-  }
-)
 }
