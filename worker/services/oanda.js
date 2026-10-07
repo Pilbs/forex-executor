@@ -3,6 +3,12 @@ import { buildClosedTradesFromTransactions } from "./trade-history.js"
 const OANDA_PRACTICE_BASE_URL = "https://api-fxpractice.oanda.com"
 const OANDA_LIVE_BASE_URL = "https://api-fxtrade.oanda.com"
 
+const PRICE_PRECISION_BY_INSTRUMENT = {
+  EUR_USD: 5,
+  GBP_USD: 5,
+  GBP_CAD: 5,
+}
+
 function requireValue(value, name) {
   if (!value) {
     throw new Error(`${name} is not configured`)
@@ -119,6 +125,88 @@ async function oandaJson(profile, path, options = {}) {
   return data
 }
 
+function parseWebhookPayload(signal) {
+  if (!signal.webhook_payload) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(signal.webhook_payload)
+  } catch {
+    throw new Error("Stored webhook payload is not valid JSON")
+  }
+}
+
+function formatPrice(instrument, value, displayPrecision = null) {
+  const precision = Number.isInteger(Number(displayPrecision))
+    ? Number(displayPrecision)
+    : PRICE_PRECISION_BY_INSTRUMENT[instrument] ?? 5
+
+  const number = Number(value)
+
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new Error("Calculated OANDA price must be a positive number")
+  }
+
+  return number.toFixed(precision)
+}
+
+function buildInitialV5Bracket(
+  direction,
+  instrument,
+  entryPrice,
+  stopDistance,
+  targetDistance,
+  displayPrecision
+) {
+  const entry = Number(entryPrice)
+  const stopDistanceNumber = Number(stopDistance)
+  const targetDistanceNumber = Number(targetDistance)
+
+  if (!Number.isFinite(entry) || entry <= 0) {
+    throw new Error("OANDA fill did not contain a valid entry price")
+  }
+
+  if (!Number.isFinite(stopDistanceNumber) || stopDistanceNumber <= 0) {
+    throw new Error("v5 stopDistance must be a positive number")
+  }
+
+  if (!Number.isFinite(targetDistanceNumber) || targetDistanceNumber <= 0) {
+    throw new Error("v5 targetDistance must be a positive number")
+  }
+
+  const stop =
+    direction === "buy"
+      ? entry - stopDistanceNumber
+      : entry + stopDistanceNumber
+
+  const target =
+    direction === "buy"
+      ? entry + targetDistanceNumber
+      : entry - targetDistanceNumber
+
+  if (direction === "buy" && !(stop < entry && target > entry)) {
+    throw new Error("Invalid long bracket relative to actual OANDA fill")
+  }
+
+  if (direction === "sell" && !(stop > entry && target < entry)) {
+    throw new Error("Invalid short bracket relative to actual OANDA fill")
+  }
+
+  return {
+    stopLoss: formatPrice(
+      instrument,
+      stop,
+      displayPrecision
+    ),
+    takeProfit: formatPrice(
+      instrument,
+      target,
+      displayPrecision
+    ),
+  }
+}
+
 export async function getAccountSummary(env) {
   const profile = getDefaultProfile(env)
 
@@ -176,6 +264,7 @@ async function assertInstrumentTradeable(profile, instrument, requestedUnits) {
 export async function placeMarketOrder(env, signal) {
   const profile = getProfileForInstrument(env, signal.instrument)
   const requestedUnits = Number(signal.requested_units)
+  let instrumentDetails = null
 
   if (
     signal.instrument === "EUR_USD" ||
@@ -183,7 +272,7 @@ export async function placeMarketOrder(env, signal) {
     signal.instrument === "GBP_USD" ||
     signal.instrument === "GBP_CAD"
   ) {
-    await assertInstrumentTradeable(
+    instrumentDetails = await assertInstrumentTradeable(
       profile,
       signal.instrument,
       requestedUnits
@@ -195,6 +284,9 @@ export async function placeMarketOrder(env, signal) {
       ? requestedUnits
       : -requestedUnits
 
+  const webhookPayload = parseWebhookPayload(signal)
+  const isV5 = webhookPayload.version === "v5"
+
   const order = {
     type: "MARKET",
     instrument: signal.instrument,
@@ -203,14 +295,14 @@ export async function placeMarketOrder(env, signal) {
     positionFill: "DEFAULT",
   }
 
-  if (signal.requested_stop_loss) {
+  if (!isV5 && signal.requested_stop_loss) {
     order.stopLossOnFill = {
       price: String(signal.requested_stop_loss),
       timeInForce: "GTC",
     }
   }
 
-  if (signal.requested_take_profit) {
+  if (!isV5 && signal.requested_take_profit) {
     order.takeProfitOnFill = {
       price: String(signal.requested_take_profit),
       timeInForce: "GTC",
@@ -240,7 +332,7 @@ export async function placeMarketOrder(env, signal) {
     )
   }
 
-  return {
+  const execution = {
     orderId:
       data.orderCreateTransaction?.id ??
       fill.orderID ??
@@ -248,6 +340,57 @@ export async function placeMarketOrder(env, signal) {
     tradeId,
     price: fill.price ?? null,
     time: fill.time ?? null,
+  }
+
+  if (!isV5) {
+    return execution
+  }
+
+  const bracket = buildInitialV5Bracket(
+    signal.direction,
+    signal.instrument,
+    fill.price,
+    webhookPayload.stopDistance,
+    webhookPayload.targetDistance,
+    instrumentDetails?.displayPrecision
+  )
+
+  try {
+    await updateTradeBracket(
+      env,
+      tradeId,
+      bracket.stopLoss,
+      bracket.takeProfit,
+      signal.instrument
+    )
+  } catch (bracketError) {
+    let emergencyCloseError = null
+
+    try {
+      await closeTrade(
+        env,
+        tradeId,
+        signal.instrument
+      )
+    } catch (closeError) {
+      emergencyCloseError = closeError
+    }
+
+    if (emergencyCloseError) {
+      throw new Error(
+        `V5 entry filled but bracket placement failed: ${bracketError.message}. Emergency close also failed: ${emergencyCloseError.message}`
+      )
+    }
+
+    throw new Error(
+      `V5 entry filled but bracket placement failed; trade was emergency-closed: ${bracketError.message}`
+    )
+  }
+
+  return {
+    ...execution,
+    stopLoss: bracket.stopLoss,
+    takeProfit: bracket.takeProfit,
   }
 }
 
@@ -272,8 +415,6 @@ export async function getClosedTrades(env, count = 100) {
     throw new Error("OANDA summary did not return a valid lastTransactionID")
   }
 
-  // Take a fixed snapshot. Page through account history without one HTTP request
-  // per trade. Never re-fetch /trades/:id: a missing resource must not erase a fill.
   const lastId = BigInt(lastTransactionId)
   const transactions = []
   for (let from = 1n; from <= lastId; from += 1000n) {
@@ -287,12 +428,38 @@ export async function getClosedTrades(env, count = 100) {
       `/v3/accounts/${profile.accountId}/transactions/idrange?${params}`
     )
     if (!Array.isArray(data.transactions)) {
-      throw new Error(`OANDA transaction page ${from}-${to} is missing transactions`)
+      throw new Error(
+        `OANDA transaction page ${from}-${to} is missing transactions`
+      )
     }
     transactions.push(...data.transactions)
   }
 
   return buildClosedTradesFromTransactions(transactions, count)
+}
+
+export async function getTrade(
+  env,
+  tradeId,
+  instrument = null
+) {
+  const profile = instrument
+    ? getProfileForInstrument(env, instrument)
+    : getDefaultProfile(env)
+
+  const data = await oandaJson(
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}`
+  )
+
+  if (!data.trade) {
+    throw new Error("OANDA trade response did not contain a trade")
+  }
+
+  return {
+    trade: data.trade,
+    lastTransactionId: data.lastTransactionID ?? null,
+  }
 }
 
 export async function updateTradeStopLoss(
@@ -363,6 +530,80 @@ export async function updateTradeBracket(
   }
 }
 
+export async function updateTradeBracketFromOffsets(
+  env,
+  tradeId,
+  direction,
+  stopOffsetFromEntry,
+  targetOffsetFromEntry,
+  instrument
+) {
+  const current = await getTrade(
+    env,
+    tradeId,
+    instrument
+  )
+
+  if (current.trade.state && current.trade.state !== "OPEN") {
+    throw new Error("Cannot update bracket for a non-open OANDA trade")
+  }
+
+  const entryPrice = Number(current.trade.price)
+  const stopOffset = Number(stopOffsetFromEntry)
+  const targetOffset = Number(targetOffsetFromEntry)
+
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+    throw new Error("OANDA trade does not have a valid entry price")
+  }
+
+  if (!Number.isFinite(stopOffset)) {
+    throw new Error("stopOffsetFromEntry must be finite")
+  }
+
+  if (!Number.isFinite(targetOffset) || targetOffset === 0) {
+    throw new Error("targetOffsetFromEntry must be non-zero and finite")
+  }
+
+  const stopLoss = entryPrice + stopOffset
+  const takeProfit = entryPrice + targetOffset
+
+  if (direction === "buy" && takeProfit <= entryPrice) {
+    throw new Error(
+      "Rejected long take-profit at or below actual OANDA entry"
+    )
+  }
+
+  if (direction === "sell" && takeProfit >= entryPrice) {
+    throw new Error(
+      "Rejected short take-profit at or above actual OANDA entry"
+    )
+  }
+
+  const formattedStop = formatPrice(
+    instrument,
+    stopLoss
+  )
+  const formattedTarget = formatPrice(
+    instrument,
+    takeProfit
+  )
+
+  const result = await updateTradeBracket(
+    env,
+    tradeId,
+    formattedStop,
+    formattedTarget,
+    instrument
+  )
+
+  return {
+    ...result,
+    entryPrice: formatPrice(instrument, entryPrice),
+    stopOffsetFromEntry: stopOffset,
+    targetOffsetFromEntry: targetOffset,
+  }
+}
+
 export async function closeTrade(
   env,
   tradeId,
@@ -371,6 +612,20 @@ export async function closeTrade(
   const profile = instrument
     ? getProfileForInstrument(env, instrument)
     : getDefaultProfile(env)
+
+  const current = await oandaJson(
+    profile,
+    `/v3/accounts/${profile.accountId}/trades/${tradeId}`
+  )
+
+  if (current.trade?.state && current.trade.state !== "OPEN") {
+    return {
+      tradeId: String(tradeId),
+      alreadyClosed: true,
+      closeTransactionId: null,
+      lastTransactionId: current.lastTransactionID ?? null,
+    }
+  }
 
   const data = await oandaJson(
     profile,
@@ -383,10 +638,12 @@ export async function closeTrade(
 
   return {
     tradeId: String(tradeId),
+    alreadyClosed: false,
+    closeTransactionId:
+      data.orderFillTransaction?.id ?? null,
     lastTransactionId: data.lastTransactionID ?? null,
   }
 }
-
 
 export async function closeTradeUnits(
   env,
